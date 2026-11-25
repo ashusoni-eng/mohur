@@ -89,7 +89,7 @@ export default async function Home() {
                 <LinkButton href={app.href} download={app.file} size="lg"><Download size={18} />Download for Android</LinkButton>
                 <span className="num text-[14px] text-ink-3">Version {app.version} · {app.size} · Android 8 or newer</span>
               </div>
-              <p className="mt-4 max-w-[62ch] text-[14px] text-ink-3">Play Protect often blocks downloaded apps that read SMS. If it does, <a className="font-semibold text-emerald underline underline-offset-4" href={`${repoUrl}#phone-app-bank-sms`} target="_blank" rel="noreferrer">install it by USB</a>.</p>
+              <p className="mt-4 max-w-[62ch] text-[14px] text-ink-3">Install blocked, or SMS greyed out? Android guards SMS for apps from outside the Play Store. <Link className="font-semibold text-emerald underline underline-offset-4" href="/install">See how to install it</Link>.</p>
             </div>
             <div className="relative mx-auto grid h-[380px] w-[200px] place-items-center overflow-hidden rounded-[34px] border-[7px] border-ink bg-deep shadow-[0_30px_60px_-24px_rgb(6_36_28/.55)]" aria-hidden>
               <Guilloche still className="absolute -left-[100px] top-0 h-[400px] w-[400px] text-brass-mid/30" />
@@ -110,7 +110,7 @@ export default async function Home() {
           </div>
         </section>
       </main>
-      <footer className="bg-deep py-8 text-white/70"><div className="mx-auto flex max-w-[1180px] px-6 flex-wrap items-center justify-between gap-4"><span className="text-brass-lt"><Wordmark size={28} /></span><span className="text-[14px]">A mohur was the gold coin of the Mughal mints.</span><nav className="flex items-center gap-6 text-[14px]"><a href={app.href} download={app.file} className="hover:text-white">Android app</a><Link href="/status" className="hover:text-white">Check a payment</Link><a href={repoUrl} target="_blank" rel="noreferrer" aria-label="Mohur on GitHub" className="hover:text-white"><GithubMark size={22} /></a></nav></div></footer>
+      <footer className="bg-deep py-8 text-white/70"><div className="mx-auto flex max-w-[1180px] px-6 flex-wrap items-center justify-between gap-4"><span className="text-brass-lt"><Wordmark size={28} /></span><span className="text-[14px]">A mohur was the gold coin of the Mughal mints.</span><nav className="flex items-center gap-6 text-[14px]"><Link href="/install" className="hover:text-white">Android app</Link><Link href="/status" className="hover:text-white">Check a payment</Link><a href={repoUrl} target="_blank" rel="noreferrer" aria-label="Mohur on GitHub" className="hover:text-white"><GithubMark size={22} /></a></nav></div></footer>
     </>
   );
 }

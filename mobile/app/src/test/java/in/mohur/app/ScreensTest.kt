@@ -49,6 +49,24 @@ class ScreensTest {
             if (out != null) s.done(Filter.id("VM-HDFCBK-S", body, now - i), out, p, if (out == "matched") "7F3A9C21B${i}" else null)
         }
     }
+    @Test fun lockedSmsShowsTheWayOut() {
+        pair()
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        a.onRequestPermissionsResult(3, arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS), intArrayOf(-1, -1))
+        val d = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+        org.junit.Assert.assertTrue(shadowOf(d).message.contains("Allow restricted settings"))
+        d.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        org.junit.Assert.assertEquals(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, shadowOf(a).nextStartedActivity.action)
+    }
+    @Test fun grantedSmsShowsNothing() {
+        pair()
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        shadowOf(app).grantPermissions(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
+        org.robolectric.shadows.ShadowAlertDialog.reset()
+        a.onRequestPermissionsResult(3, arrayOf(Manifest.permission.RECEIVE_SMS), intArrayOf(0))
+        org.junit.Assert.assertNull(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog())
+    }
     @Test fun welcome() = shot("welcome")
     @Test fun needsSms() { pair(); shot("needs-sms") }
     @Test fun listening() {

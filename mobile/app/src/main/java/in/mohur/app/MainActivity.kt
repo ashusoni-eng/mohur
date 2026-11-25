@@ -5,12 +5,16 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.SpannableStringBuilder
+import android.text.style.StyleSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -69,7 +73,7 @@ class MainActivity : Activity() {
     // --- Pairing -----------------------------------------------------------
 
     private fun scan() {
-        if (checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) startActivityForResult(Intent(this, ScanActivity::class.java), SCAN)
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startActivityForResult(Intent(this, ScanActivity::class.java), SCAN)
         else requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA)
     }
 
@@ -120,16 +124,23 @@ class MainActivity : Activity() {
     // --- Permissions -------------------------------------------------------
 
     private fun askSms() {
-        val perms = arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
-        // Once refused for good, Android stops showing the prompt and only Settings can grant it.
-        if (store.askedSms && perms.none { shouldShowRequestPermissionRationale(it) }) return openSettings()
-        store.askedSms = true
-        requestPermissions(perms, SMS)
+        // Always try the normal prompt first. Android decides whether it may appear.
+        requestPermissions(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS), SMS)
     }
 
-    private fun openSettings() {
-        dialog("Allow SMS in Settings", "Open Permissions, then SMS, and choose Allow.\n\nIf SMS is greyed out, go back one screen, tap the ⋮ menu and choose Allow restricted settings. Android asks for this with apps installed outside the Play Store.")
-            .setPositiveButton("Open Settings") { _, _ -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))) }
+    /** For apps installed outside a store, Android locks SMS until the owner lifts it for that one app. */
+    private fun guide() {
+        val steps = SpannableStringBuilder()
+        listOf(
+            "Open App info with the button below.",
+            "Tap Permissions, then SMS. If you can choose Allow, do that and you are done.",
+            "If it is greyed out, tap it once so Android shows its Restricted setting notice, then go back to App info.",
+            "Tap the \u22ee menu, usually at the top right, and choose Allow restricted settings. Confirm with your PIN or fingerprint.",
+            "Open Permissions, then SMS again, and choose Allow.",
+        ).forEachIndexed { n, t -> steps.append("${n + 1}.  ", StyleSpan(Typeface.BOLD), 0).append(t).append("\n\n") }
+        steps.append("No such menu on your phone? Connect it to a computer and follow ${store.pairing?.server?.removePrefix("https://") ?: "your Mohur site"}/install.")
+        AlertDialog.Builder(this, R.style.MohurDialog).setTitle("Let Mohur read SMS").setMessage(steps)
+            .setPositiveButton("Open App info") { _, _ -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))) }
             .setNegativeButton("Not now", null).show()
     }
 
@@ -137,8 +148,12 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(code, p, r)
         drawn = ""
         render()
-        if (code == CAMERA) { if (r.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) scan() else notice("Camera is off", "Allow the camera to scan, or copy the pairing code and tap Paste pairing code.") }
-        if (code == SMS) refresh()
+        if (code == CAMERA) { if (r.firstOrNull() == PackageManager.PERMISSION_GRANTED) scan() else notice("Camera is off", "Allow the camera to scan, or copy the pairing code and tap Paste pairing code.") }
+        if (code == SMS) {
+            refresh()
+            // A plain "Don't allow" can be asked again. Anything else means only App info can grant it.
+            if (p.isNotEmpty() && !Sync.smsAllowed(this) && p.none { shouldShowRequestPermissionRationale(it) }) guide()
+        }
     }
 
     private fun askBattery() {
@@ -250,7 +265,10 @@ class MainActivity : Activity() {
         background = android.graphics.drawable.GradientDrawable().apply { setColor(Ui.MARBLE); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
         setPadding(d(18), d(20), d(18), 0)
 
-        if (!sms) addView(task("Allow SMS", "Mohur cannot hear your bank until you do.", "Allow", Ui.CARNELIAN, Ui.CARNELIAN_WASH) { askSms() })
+        if (!sms) {
+            addView(task("Allow SMS", "Mohur cannot hear your bank until you do.", "Allow", Ui.CARNELIAN, Ui.CARNELIAN_WASH) { askSms() })
+            addView(task("SMS greyed out?", "Android locks it for apps from outside the Play Store. You can unlock it for Mohur alone.", "Show how", Ui.AMBER, Ui.AMBER_WASH) { guide() })
+        }
         else if (store.lastError != null) addView(task("Cannot sync", store.lastError!!.trimEnd('.') + ". Messages are kept and sent when it is back.", "Retry", Ui.AMBER, Ui.AMBER_WASH) { refresh(); render() })
         if (sms && !battery) addView(task("Let Mohur run in the background", "Battery saving can delay confirmations.", "Fix", Ui.AMBER, Ui.AMBER_WASH) { askBattery() })
 

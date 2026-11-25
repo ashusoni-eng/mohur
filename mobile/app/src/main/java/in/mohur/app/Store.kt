@@ -53,9 +53,6 @@ class Store private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "mohur.db"
     var scannedTo: Long
         get() = prefs.getLong("scanned", 0)
         set(v) = prefs.edit().putLong("scanned", v).apply()
-    var askedSms: Boolean
-        get() = prefs.getBoolean("askedSms", false)
-        set(v) = prefs.edit().putBoolean("askedSms", v).apply()
 
     /** Queues a message if it may leave the phone and has not been seen. Returns true when queued. */
     @Synchronized

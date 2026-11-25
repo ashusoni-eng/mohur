@@ -89,7 +89,8 @@ iPhones do not let apps read SMS.
    It can also be downloaded from Configuration → Phone (SMS), but Google Play Protect often blocks downloaded apps that read
    SMS, especially in India. Google Play itself does not accept apps like this one.
 2. Configuration → Phone (SMS) → Show pairing code, and scan it in the app.
-3. Allow SMS. If Android greys it out: App info → ⋮ → Allow restricted settings.
+3. Allow SMS. If Android greys it out: tap Allow in the app once, then App info → ⋮ → Allow restricted settings → Permissions → SMS. Or grant it
+   over USB with `adb shell pm grant in.mohur.app android.permission.RECEIVE_SMS` (and `READ_SMS`). `/install` on your site has every step.
 4. Tap Fix if the app offers to turn off battery saving. On Xiaomi, Oppo, Vivo and Realme also turn on Autostart.
 
 The phone must be able to reach the server. With `APP_URL=http://localhost:4100` the code uses this computer's Wi-Fi address, so
