@@ -5,6 +5,7 @@ import { decrypt } from "../crypto";
 import { env } from "../env";
 import type { MailAccount } from "../../types";
 import { ingest } from "./ingest";
+import type { Headers } from "./screen";
 import { parseHeaderBlock } from "./headers";
 
 export class AuthFailure extends Error {}
@@ -40,6 +41,48 @@ export async function testLogin(email: string, pass: string) {
     throw new AuthFailure(friendly(e));
   } finally {
     await c.logout().catch(() => c.close());
+  }
+}
+
+export interface Found { messageId: string; at: number; headers: Headers; body: () => Promise<{ text?: string | null; html?: string | null }> }
+
+/**
+ * Looks back over a stretch of time on a connection of its own. Uses All Mail where the account
+ * shows it, so an alert that a filter archived or labelled is found too.
+ */
+export async function lookBackImap(account: MailAccount, from: number, each: (m: Found) => Promise<void>) {
+  const client = imapClient(account.email, decrypt(account.secret_enc));
+  try {
+    await client.connect();
+    const boxes = await client.list().catch(() => []);
+    await client.mailboxOpen(boxes.find((b) => b.specialUse === "\\All")?.path ?? "INBOX", { readOnly: true });
+    // SINCE works in whole days in the server's timezone, so start a day early and filter by the exact time.
+    const uids = (await client.search({ since: new Date(from - 86_400_000) }, { uid: true })) || [];
+    const heads: { uid: number; at: number; raw: string }[] = [];
+    for (let i = 0; i < uids.length; i += 200)
+      for await (const m of client.fetch(uids.slice(i, i + 200).join(","), { uid: true, internalDate: true, headers: ["from", "subject", "message-id", "authentication-results"] }, { uid: true })) {
+        const at = new Date(m.internalDate ?? 0).getTime();
+        if (at >= from) heads.push({ uid: m.uid, at, raw: (m.headers ?? Buffer.alloc(0)).toString() });
+      }
+    heads.sort((a, b) => a.at - b.at || a.uid - b.uid);
+    for (const h of heads) {
+      const { headers, messageId } = parseHeaderBlock(h.raw);
+      if (!messageId) continue;
+      await each({
+        messageId, at: h.at, headers,
+        body: async () => {
+          const full = await client.fetchOne(String(h.uid), { source: { maxLength: 512 * 1024 } }, { uid: true });
+          const mail = await simpleParser(full && full.source ? full.source : Buffer.alloc(0));
+          return { text: mail.text, html: mail.html || null };
+        },
+      });
+    }
+    return heads.length;
+  } catch (e) {
+    if (isAuth(e)) throw new AuthFailure(friendly(e));
+    throw new Error(friendly(e));
+  } finally {
+    await client.logout().catch(() => client.close());
   }
 }
 

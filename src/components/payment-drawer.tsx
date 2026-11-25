@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, MailSearch } from "lucide-react";
 import type { Mail, Payment, PaymentEvent } from "@/lib/types";
-import { api, fmtFull, message } from "@/lib/client";
+import { api, fmtFull, fmtTime, message } from "@/lib/client";
 import { inr } from "@/lib/money";
-import { useApi } from "./live";
+import { useApi, useLive } from "./live";
 import { Button, CopyButton, Dialog, LinkButton, Skeleton, StatusPill, useToast } from "./ui";
 
 type Detail = { payment: Payment; events: PaymentEvent[]; mail: Mail | null };
@@ -68,7 +68,49 @@ export function PaymentDetail({ payment: p, events, mail }: Detail) {
           ))}
         </ol>
       </div>
+      {p.status !== "paid" && p.status !== "declined" && <CheckMail p={p} />}
       <Decide p={p} />
+    </div>
+  );
+}
+
+type Alert = { subject: string; at: number; outcome: string; reason: string; amount: number | null; paymentId: string | null };
+type Checked = { read: number; confirmed: string[]; alerts: Alert[]; payment: Payment };
+
+/** Reads Gmail again from just before this payment was created, and says what it found. */
+function CheckMail({ p }: { p: Payment }) {
+  const live = useLive();
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState<Checked | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const toast = useToast();
+  if (!live?.mail) return null;
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const x = await api<Checked>(`/api/payments/${p.id}/check-mail`, "POST", {});
+      setR(x);
+      if (x.payment.status === "paid") toast(`${inr(p.payable)} confirmed from your mail`);
+    } catch (e) { setErr(message(e)); }
+    setBusy(false);
+  };
+  const near = r?.alerts.filter((a) => a.amount === p.payable || a.amount === null) ?? [];
+  const rest = r?.alerts.filter((a) => !near.includes(a)) ?? [];
+  return (
+    <div className="border-t border-line px-6 py-4">
+      <Button variant="quiet" className="w-full" busy={busy} onClick={go}>{!busy && <MailSearch size={17} />}{busy ? "Reading Gmail" : "Check mail again"}</Button>
+      {err && <p role="alert" className="mt-3 text-[14px] text-carnelian">{err}</p>}
+      {r && r.payment.status !== "paid" && !busy && (
+        <div className="mt-3 text-[14px]" aria-live="polite">
+          <p className="num text-ink-2">Read {r.read} email{r.read === 1 ? "" : "s"} since {fmtTime(p.created_at)}. {r.alerts.length === 0 ? "None is a credit alert from your bank." : `${r.alerts.length} from your bank, none of which confirms this payment.`}</p>
+          {[...near, ...rest].slice(0, 5).map((a, i) => (
+            <div key={i} className="mt-2.5 rounded-[9px] bg-sunk px-3.5 py-2.5">
+              <p className="num flex justify-between gap-3 font-semibold"><span className="truncate">{a.subject}</span>{a.amount !== null && <span>{inr(a.amount)}</span>}</p>
+              <p className="num mt-0.5 text-ink-2">{a.outcome === "matched" ? `Confirmed ${a.paymentId}` : a.reason} · {fmtTime(a.at)}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

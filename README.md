@@ -62,6 +62,7 @@ pending ──customer taps "I have paid"──▶ verifying ──60 s, no mail
 
 - The 60-second clock starts at "I have paid" by default. Configuration → Payment rules can start it when the QR appears.
 - Browsers get status over server-sent events, with a 5-second poll as a fallback.
+- A held payment the customer says they paid is also looked for again: Gmail is re-read when it goes on hold and every two minutes for twenty. **Check mail again** on a payment, or on Bank alerts, does it on demand.
 - A held payment keeps listening (60 minutes by default). The customer can submit a UTR, and the merchant can approve or decline.
 
 ## How a mail is trusted

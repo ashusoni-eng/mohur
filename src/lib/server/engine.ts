@@ -3,6 +3,7 @@ import { publish, subscribe, topics } from "./bus";
 import { hasLivePayments, sweep } from "./payments";
 import { deliverDue } from "./webhooks";
 import { AuthFailure, runImap } from "./mail/imap";
+import { rescan } from "./mail/rescan";
 import { runGoogle } from "./mail/google";
 import type { MailAccount } from "../types";
 
@@ -14,6 +15,7 @@ class Engine {
   private runners = new Map<string, AbortController>();
   private timer?: NodeJS.Timeout;
   private delivering = false;
+  private reread = new Map<string, number>();
 
   start() {
     if (this.timer) return;
@@ -23,9 +25,27 @@ class Engine {
 
   private tick() {
     try { sweep(); } catch (e) { console.error("[mohur] sweep", e); }
+    this.rereadHeld();
     if (this.delivering) return;
     this.delivering = true;
     deliverDue().catch((e) => console.error("[mohur] webhooks", e)).finally(() => { this.delivering = false; });
+  }
+
+  /**
+   * A customer says they paid and no alert has come. Read the mailbox again when the payment goes on
+   * hold, then every two minutes for the first twenty, in case the alert was filtered away or passed over.
+   */
+  private rereadHeld(now = Date.now()) {
+    const due = all<{ merchant_id: string; oldest: number; newest: number }>(
+      `SELECT p.merchant_id, MIN(p.created_at) oldest, MAX(p.held_at) newest FROM payments p JOIN mail_accounts a ON a.merchant_id=p.merchant_id AND a.status='live'
+       WHERE p.status='on_hold' AND p.claimed_at IS NOT NULL AND p.held_at>? GROUP BY p.merchant_id`, now - 20 * 60_000,
+    );
+    for (const d of due) {
+      const last = this.reread.get(d.merchant_id) ?? 0;
+      if (last > d.newest && now - last < 2 * 60_000) continue;
+      this.reread.set(d.merchant_id, now);
+      rescan(d.merchant_id, d.oldest - 60_000).catch((e) => console.error("[mohur] re-read", e instanceof Error ? e.message : e));
+    }
   }
 
   /** (Re)start a merchant's mailbox listener, or stop it if the account is gone. */

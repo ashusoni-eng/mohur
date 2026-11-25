@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Ban, Check, CircleHelp, Copy, MailX, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Ban, Check, CircleHelp, Copy, MailSearch, MailX, ShieldAlert, type LucideIcon } from "lucide-react";
 import type { Mail, MailOutcome, Payment } from "@/lib/types";
 import { api, fmtFull, fmtTime, message } from "@/lib/client";
 import { inr } from "@/lib/money";
@@ -25,11 +25,22 @@ export function MailView() {
   const live = useLive();
   const [pick, setPick] = useState<Row | null>(null);
   const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ read: number; confirmed: string[]; alerts: unknown[] }>("/api/mails/check", "POST", {});
+      toast(r.confirmed.length ? `${r.confirmed.length} payment${r.confirmed.length === 1 ? "" : "s"} confirmed` : `Read ${r.read} emails from the last 24 hours. Nothing new to confirm.`);
+      await reload();
+    } catch (e) { toast(message(e), true); }
+    setBusy(false);
+  };
   const dismiss = async (m: Row) => { try { await api(`/api/mails/${m.id}/dismiss`, "POST", {}); toast("Credit dismissed"); await reload(); } catch (e) { toast(message(e), true); } };
   return (
     <>
       <PageHead title="Bank alerts" sub={live?.mail || live?.devices.length ? <>{live.mail && <>Reading {live.mail.email}. <span className="num">{live.mail.screened}</span> subjects checked; only bank alerts are opened. </>}{live.devices.some((d) => d.status === "active") && <>Bank SMS arrive from {live.devices.filter((d) => d.status === "active").map((d) => d.label).join(", ")}.</>}</> : "Connect Gmail or pair a phone and your bank's credit alerts will show up here."}>
         {!live?.mail && <LinkButton href="/app/configuration">Connect Gmail</LinkButton>}
+        {live?.mail && <Button variant="quiet" busy={busy} onClick={check}>{!busy && <MailSearch size={17} />}{busy ? "Reading Gmail" : "Check mail again"}</Button>}
       </PageHead>
       <div className="mb-4"><Segmented label="Filter" value={tab} onChange={setTab} options={TABS} /></div>
       {error && !data && <p className="card p-6 text-carnelian">{error}</p>}

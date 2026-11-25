@@ -4,7 +4,7 @@ import { env } from "../env";
 import type { MailAccount } from "../../types";
 import { ingest } from "./ingest";
 import { buildHeaders } from "./headers";
-import { AuthFailure } from "./imap";
+import { AuthFailure, type Found } from "./imap";
 
 const SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -67,6 +67,28 @@ function bodyOf(p: Part | undefined, want: string): string | null {
   if (p.mimeType === want && p.body?.data) return Buffer.from(p.body.data, "base64url").toString("utf8");
   for (const c of p.parts ?? []) { const t = bodyOf(c, want); if (t) return t; }
   return null;
+}
+
+/** The Gmail API's answer to lookBackImap. Searches everything except Spam and Trash. */
+export async function lookBackGoogle(account: MailAccount, from: number, each: (m: Found) => Promise<void>) {
+  const { access_token: access } = await token({ grant_type: "refresh_token", refresh_token: decrypt(account.secret_enc) });
+  const ids: string[] = [];
+  let page = "";
+  do {
+    const r = await call<{ messages?: { id: string }[]; nextPageToken?: string }>(access, `/messages?maxResults=100&q=${encodeURIComponent(`after:${Math.floor(from / 1000)}`)}${page && `&pageToken=${page}`}`);
+    ids.push(...(r.messages ?? []).map((m) => m.id));
+    page = r.nextPageToken ?? "";
+  } while (page && ids.length < 500);
+  for (const id of ids.reverse()) {
+    const h = ["From", "Subject", "Message-ID", "Authentication-Results"].map((x) => `metadataHeaders=${x}`).join("&");
+    const meta = await call<Msg>(access, `/messages/${id}?format=metadata&${h}`);
+    const { headers, messageId } = buildHeaders(meta.payload?.headers ?? []);
+    await each({
+      messageId: messageId ?? `gmail:${id}`, at: Number(meta.internalDate), headers,
+      body: async () => { const full = await call<Msg>(access, `/messages/${id}?format=full`); return { text: bodyOf(full.payload, "text/plain"), html: bodyOf(full.payload, "text/html") }; },
+    });
+  }
+  return ids.length;
 }
 
 export async function runGoogle(account: MailAccount, opts: { signal: AbortSignal; idleMs: () => number; wake: (fn: () => void) => () => void; onLive: () => void }) {

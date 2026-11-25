@@ -208,8 +208,9 @@ export function sweep(now = Date.now()) {
   }
 }
 
+/** Someone is paying now, or went on hold in the last ten minutes and is still watching the page. */
 export const hasLivePayments = (merchantId: string) =>
-  !!get("SELECT 1 FROM payments WHERE merchant_id=? AND status IN ('pending','verifying') LIMIT 1", merchantId);
+  !!get("SELECT 1 FROM payments WHERE merchant_id=? AND (status IN ('pending','verifying') OR (status='on_hold' AND held_at>?)) LIMIT 1", merchantId, Date.now() - 10 * MIN);
 
 export function upiUri(p: Payment, s: Settings): string {
   // Encode by hand: URLSearchParams writes spaces as "+", which some UPI apps show literally.

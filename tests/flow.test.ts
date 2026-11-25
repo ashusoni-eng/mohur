@@ -154,6 +154,51 @@ describe("wrong account saved", () => {
   });
 });
 
+describe("reading mail again", () => {
+  const again = (id: string, amount: string, o: { at?: number; auth?: string } = {}) =>
+    I.ingest(M, { messageId: id, source: "gmail", receivedAt: o.at ?? Date.now(), headers: { from: ["alerts@hdfcbank.net"], subject: "View: Account update for your HDFC Bank A/c", authResults: [o.auth ?? "mx.google.com; dmarc=pass header.from=hdfcbank.net"] } },
+      async () => ({ text: `Rs.${amount} is successfully credited to your account **4321 by VPA a@ybl on 25-11-26.` }), { again: true });
+  it("confirms a payment whose mail was passed over", async () => {
+    set("bank_code", "kotak");
+    const p = make();
+    expect(await mail("500.00", { id: "<m>" })).toBe("ignored");
+    P.claim(p.id);
+    tick(120);
+    set("bank_code", "hdfc");
+    expect(await again("<m>", "500.00", { at: Date.now() - 119_000 })).toBe("matched");
+    expect(st(p.id)).toBe("paid");
+    expect(all("SELECT * FROM mails")).toHaveLength(1);
+  });
+  it("judges by when the mail arrived, so an old credit cannot pay a new order", async () => {
+    await mail("500.00", { id: "<m>" });
+    tick(30);
+    const p = make();
+    expect(await again("<m>", "500.00", { at: Date.now() - 30_000 })).toBe("unmatched");
+    expect(st(p.id)).toBe("pending");
+  });
+  it("never reopens a mail that already paid for something, or one you dismissed", async () => {
+    const a = make();
+    await mail("500.00", { id: "<m>" });
+    const b = make();
+    run("UPDATE payments SET payable=50000 WHERE id=?", b.id);
+    expect(await again("<m>", "500.00")).toBe("matched");
+    expect([st(a.id), st(b.id)]).toEqual(["paid", "pending"]);
+    await mail("77.00", { id: "<d>" });
+    I.dismissMail(M, get<{ id: number }>("SELECT id FROM mails WHERE message_id='<d>'")!.id);
+    const c = P.createPayment({ merchantId: M, source: "qr", title: "t", amount: 7700 });
+    expect(await again("<d>", "77.00")).toBe("dismissed");
+    expect(st(c.id)).toBe("pending");
+  });
+  it("still refuses a forgery", async () => {
+    const p = make();
+    const bad = "mx.google.com; dmarc=fail header.from=hdfcbank.net";
+    await mail("500.00", { id: "<f>", auth: bad });
+    expect(await again("<f>", "500.00", { auth: bad })).toBe("suspicious");
+    expect(st(p.id)).toBe("pending");
+    expect(all("SELECT * FROM mails")).toHaveLength(1);
+  });
+});
+
 describe("clocks", () => {
   it("goes on hold 60 seconds after the customer says they paid, then still settles when mail arrives", async () => {
     const p = make();

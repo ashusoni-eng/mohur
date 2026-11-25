@@ -24,10 +24,6 @@ export const screenFor = (merchantId: string, h: Headers): Screen => screen(h, p
 export const bodyText = (b: Body) => (b.text && b.text.trim().length > 20 ? b.text : b.html ? htmlToText(b.html) : b.text ?? "");
 
 /**
- * Full pipeline for one message. `fetchBody` is only called when headers pass,
- * so personal mail is never downloaded or stored.
- */
-/**
  * A bank SMS forwarded by a paired phone. Same parsing and matching as mail, but the sender is
  * judged by its registered SMS header instead of DKIM.
  */
@@ -55,33 +51,56 @@ export function ingestSms(merchantId: string, m: { messageId: string; sender: st
   return { outcome, amount: row?.amount ?? null, payment_id: outcome === "matched" ? row?.payment_id ?? null : null };
 }
 
-export async function ingest(merchantId: string, m: Incoming, fetchBody: () => Promise<Body>): Promise<MailOutcome | "skipped"> {
-  if (get("SELECT 1 FROM mails WHERE merchant_id=? AND message_id=?", merchantId, m.messageId)) return "skipped";
+/**
+ * Full pipeline for one message. `fetchBody` is only called when headers pass,
+ * so personal mail is never downloaded or stored. With `again`, a message that was read before
+ * but settled nothing is judged afresh, under the same rules.
+ */
+export async function ingest(merchantId: string, m: Incoming, fetchBody: () => Promise<Body>, opts: { again?: boolean } = {}): Promise<MailOutcome | "skipped"> {
+  const old = get<Mail>("SELECT * FROM mails WHERE merchant_id=? AND message_id=?", merchantId, m.messageId);
+  if (old && !(opts.again && reopenable(old))) return opts.again ? old.outcome : "skipped";
   const v = screenFor(merchantId, m.headers);
-  run("UPDATE mail_accounts SET screened=screened+1 WHERE merchant_id=?", merchantId);
+  if (!opts.again) run("UPDATE mail_accounts SET screened=screened+1 WHERE merchant_id=?", merchantId);
   if (v.verdict === "skip") {
     if (!v.otherBank) return "skipped";
     // A real alert from a bank other than the chosen one: usually a wrong setting, so leave a trace. Headers only.
-    record(merchantId, m, { outcome: "ignored", reason: v.reason });
+    note(merchantId, m, old, { outcome: "ignored", reason: v.reason });
     publish(topics.merchant(merchantId));
     return "ignored";
   }
   if (v.verdict === "suspicious") {
-    record(merchantId, m, { outcome: "suspicious", reason: v.reason });
+    note(merchantId, m, old, { outcome: "suspicious", reason: v.reason });
     publish(topics.merchant(merchantId));
     return "suspicious";
   }
   const text = bodyText(await fetchBody());
   const parsed = parseCredit(m.headers.subject, text);
   if (!parsed.ok) {
-    record(merchantId, m, { outcome: "ignored", reason: parsed.reason, bank: v.bank });
+    note(merchantId, m, old, { outcome: "ignored", reason: parsed.reason, bank: v.bank });
     publish(topics.merchant(merchantId));
     return "ignored";
   }
-  const { outcome, settled } = tx(() => apply(merchantId, m, v.bank, parsed.credit));
+  const { outcome, settled } = tx(() => {
+    forget(old);
+    return apply(merchantId, m, v.bank, parsed.credit);
+  });
   if (settled) announce(settled);
   publish(topics.merchant(merchantId));
   return outcome;
+}
+
+const reopenable = (r: Mail) => r.payment_id === null && ["ignored", "unmatched", "ambiguous", "suspicious"].includes(r.outcome);
+/** Drops an earlier reading so a new one can take its place. Anything tied to a payment in the meantime stays. */
+function forget(old: Mail | undefined) {
+  if (old) run("DELETE FROM mails WHERE id=? AND payment_id IS NULL AND outcome IN ('ignored','unmatched','ambiguous','suspicious')", old.id);
+}
+
+/** Records a reading that settles nothing, unless another reader got to the same message first. */
+function note(merchantId: string, m: Incoming, old: Mail | undefined, r: Rec) {
+  tx(() => {
+    forget(old);
+    if (!get("SELECT 1 FROM mails WHERE merchant_id=? AND message_id=?", merchantId, m.messageId)) record(merchantId, m, r);
+  });
 }
 
 type Rec = Partial<Pick<Mail, "bank" | "amount" | "utr" | "payer_vpa" | "payer_name" | "account_tail" | "excerpt" | "payment_id">> & { outcome: MailOutcome; reason: string };
