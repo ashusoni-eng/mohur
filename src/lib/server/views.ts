@@ -2,6 +2,7 @@ import { all, get } from "./db";
 import { decrypt } from "./crypto";
 import { getSettings, upiUri } from "./payments";
 import type { Device, Link, Mail, MailAccount, Payment, PaymentStatus } from "../types";
+import { accountMismatch } from "./mail/ingest";
 import { qrPath } from "../qr";
 
 /** What a customer holding a payment ID may see. No merchant internals, no other payments. */
@@ -143,6 +144,6 @@ export const listDevices = (merchantId: string) =>
 
 export function settingsView(merchantId: string) {
   const { account_number_enc, ...s } = getSettings(merchantId);
-  return { ...s, has_account: !!account_number_enc };
+  return { ...s, has_account: !!account_number_enc, mismatch: accountMismatch(merchantId) };
 }
 export type SettingsView = ReturnType<typeof settingsView>;

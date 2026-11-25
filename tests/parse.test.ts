@@ -9,6 +9,7 @@ const credits: [string, string, string, Record<string, unknown>][] = [
   ["SBI", "Transaction Alert", "Dear Customer, Your A/C XXXXX4321 has a credit by Transfer of Rs 750.00 on 25/11/26 by ASHA. Avl Bal Rs 9,220.00. Amount credited: Rs 750.00", { amount: 75000, accountTail: "4321" }],
   ["Axis", "INR 320.50 was credited to your A/c. no. XX4321.", "25-11-2026\nDear Customer,\nHere's the summary of your Axis Bank Account:\nAmount Credited:\nINR 320.50\nAccount Number:\nXX4321\nDate & Time:\n25-11-26, 10:11:12 IST\nTransaction Info:\nUPI/P2A/633055554444/JOHN D", { amount: 32050, utr: "633055554444", accountTail: "4321" }],
   ["Kotak", "Credit alert", "We wish to inform you that your account xx4321 is credited by Rs. 45.00 on 25-Nov-2026 for UPI transaction. UPI Ref No 633000001111.", { amount: 4500, utr: "633000001111" }],
+  ["IDFC FIRST", "Transaction alert from IDFC FIRST Bank", "Dear Customer, Your A/C XXXXXXX4321 has been credited with INR 1.01 on 25/11/2026 10:11.", { amount: 101, accountTail: "4321" }],
   ["rupee sign", "Money received", "You received ₹99.00 in your account from priya@oksbi. UTR: 633011112222", { amount: 9900, utr: "633011112222", payerVpa: "priya@oksbi" }],
 ];
 

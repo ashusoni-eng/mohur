@@ -59,7 +59,13 @@ export async function ingest(merchantId: string, m: Incoming, fetchBody: () => P
   if (get("SELECT 1 FROM mails WHERE merchant_id=? AND message_id=?", merchantId, m.messageId)) return "skipped";
   const v = screenFor(merchantId, m.headers);
   run("UPDATE mail_accounts SET screened=screened+1 WHERE merchant_id=?", merchantId);
-  if (v.verdict === "skip") return "skipped";
+  if (v.verdict === "skip") {
+    if (!v.otherBank) return "skipped";
+    // A real alert from a bank other than the chosen one: usually a wrong setting, so leave a trace. Headers only.
+    record(merchantId, m, { outcome: "ignored", reason: v.reason });
+    publish(topics.merchant(merchantId));
+    return "ignored";
+  }
   if (v.verdict === "suspicious") {
     record(merchantId, m, { outcome: "suspicious", reason: v.reason });
     publish(topics.merchant(merchantId));
@@ -107,8 +113,11 @@ function apply(merchantId: string, m: Incoming, bank: string, c: Credit): { outc
   }
   const s = getSettings(merchantId);
   if (c.accountTail && s.account_tail && !tailsAgree(c.accountTail, s.account_tail)) {
-    record(merchantId, m, { ...base, outcome: "ignored", reason: `For a different account (ending ${c.accountTail})` });
-    return { outcome: "ignored" };
+    // Someone is waiting for exactly this amount, so the saved account is probably the wrong one. Show it, never settle it.
+    const waited = match(merchantId, m.receivedAt, c);
+    const outcome = waited.payment || waited.many ? "unmatched" : "ignored";
+    record(merchantId, m, { ...base, outcome, reason: `${WRONG_ACCOUNT} ${c.accountTail}, but Configuration has ${s.account_tail}` });
+    return { outcome };
   }
 
   // The same credit often arrives twice, by mail and by SMS, and one of the two may omit the UTR.
@@ -132,6 +141,46 @@ function apply(merchantId: string, m: Incoming, bank: string, c: Credit): { outc
   if (!settleInTx(p, { method: found.byUtr ? "utr" : m.source === "sms" ? "sms" : "email", mailId, utr: c.utr, vpa: c.payerVpa, name: c.payerName }))
     throw new Error(`Payment ${p.id} changed while being matched`);
   return { outcome: "matched", settled: getPayment(p.id)! };
+}
+
+const WRONG_ACCOUNT = "Paid into the account ending";
+
+/** The newest credit this week that was refused because it named another account, if the setting still disagrees with it. */
+export function accountMismatch(merchantId: string): { tail: string; saved: string; at: number } | null {
+  const s = getSettings(merchantId);
+  const r = get<Mail>("SELECT * FROM mails WHERE merchant_id=? AND account_tail IS NOT NULL AND amount IS NOT NULL AND received_at>? ORDER BY received_at DESC LIMIT 1", merchantId, Date.now() - 7 * 86_400_000);
+  if (!s.account_tail || !r?.account_tail || tailsAgree(r.account_tail, s.account_tail)) return null;
+  return { tail: r.account_tail, saved: s.account_tail, at: r.received_at };
+}
+
+/** After the account is corrected, credits refused for that reason alone get a second chance under the normal rules. */
+export function recheckAccount(merchantId: string): number {
+  const s = getSettings(merchantId);
+  const rows = all<Mail>(
+    "SELECT * FROM mails WHERE merchant_id=? AND payment_id IS NULL AND amount IS NOT NULL AND outcome IN ('ignored','unmatched') AND (reason LIKE 'Paid into the account ending%' OR reason LIKE 'For a different account%') AND received_at>? ORDER BY received_at",
+    merchantId, Date.now() - 86_400_000,
+  );
+  let n = 0;
+  for (const r of rows) {
+    if (!r.account_tail || (s.account_tail && !tailsAgree(r.account_tail, s.account_tail))) continue;
+    const c: Credit = { amount: r.amount!, utr: r.utr, payerVpa: r.payer_vpa, payerName: r.payer_name, accountTail: r.account_tail, paymentIds: [], sentence: r.excerpt };
+    const settled = tx(() => {
+      if (r.utr && get("SELECT 1 FROM mails WHERE merchant_id=? AND utr=? AND id<>? AND outcome IN ('matched','unmatched','ambiguous')", merchantId, r.utr, r.id)) {
+        run("UPDATE mails SET outcome='duplicate', reason=? WHERE id=?", `UTR ${r.utr} was already received`, r.id);
+        return null;
+      }
+      const found = match(merchantId, r.received_at, c);
+      if (found.payment && settleInTx(found.payment, { method: found.byUtr ? "utr" : r.source === "sms" ? "sms" : "email", mailId: r.id, utr: r.utr, vpa: r.payer_vpa, name: r.payer_name })) {
+        run("UPDATE mails SET outcome='matched', reason=?, payment_id=? WHERE id=?", found.reason, found.payment.id, r.id);
+        return getPayment(found.payment.id)!;
+      }
+      run("UPDATE mails SET outcome=?, reason=? WHERE id=?", found.many ? "ambiguous" : "unmatched", found.reason, r.id);
+      return null;
+    });
+    if (settled) { announce(settled); n++; }
+  }
+  if (rows.length) publish(topics.merchant(merchantId));
+  return n;
 }
 
 function echoOf(merchantId: string, m: Incoming, c: Credit): Payment | undefined {

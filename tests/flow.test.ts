@@ -68,7 +68,7 @@ describe("settling from email", () => {
     const p = make();
     expect(await mail("500.00", { auth: "mx.google.com; dmarc=fail header.from=hdfcbank.net" })).toBe("suspicious");
     expect(await mail("500.00", { from: "x@gmail.com" })).toBe("skipped");
-    expect(await mail("500.00", { tail: "9999" })).toBe("ignored");
+    expect(await mail("500.00", { tail: "9999" })).toBe("unmatched");
     expect(await mail("499.00")).toBe("unmatched");
     expect(st(p.id)).toBe("pending");
   });
@@ -104,6 +104,53 @@ describe("settling from email", () => {
     expect(new Set(ps.map((p) => p.payable)).size).toBe(99);
     expect(ps.every((p) => p.payable > 50000)).toBe(true);
     expect(make().exclusive).toBe(0);
+  });
+});
+
+describe("wrong account saved", () => {
+  it("shows the credit for review, never settles it, and recovers when the account is corrected", async () => {
+    set("account_tail", "1111");
+    const p = make();
+    expect(await mail("500.00", { tail: "2222" })).toBe("unmatched");
+    expect(st(p.id)).toBe("pending");
+    expect(get<{ reason: string }>("SELECT reason FROM mails")!.reason).toBe("Paid into the account ending 2222, but Configuration has 1111");
+    expect(I.accountMismatch(M)).toMatchObject({ tail: "2222", saved: "1111" });
+    expect(I.recheckAccount(M)).toBe(0);
+    expect(st(p.id)).toBe("pending");
+    tick(400);
+    set("account_tail", "2222");
+    expect(I.recheckAccount(M)).toBe(1);
+    expect(P.getPayment(p.id)).toMatchObject({ status: "paid", method: "email" });
+    expect(I.accountMismatch(M)).toBeNull();
+    expect(I.recheckAccount(M)).toBe(0);
+  });
+  it("recovers credits refused by the older wording too", async () => {
+    set("account_tail", "1111");
+    const p = make();
+    await mail("500.00", { tail: "2222" });
+    run("UPDATE mails SET outcome='ignored', reason='For a different account (ending 2222)'");
+    set("account_tail", "2222");
+    expect(I.recheckAccount(M)).toBe(1);
+    expect(st(p.id)).toBe("paid");
+  });
+  it("leaves unrelated credits to other accounts ignored", async () => {
+    expect(await mail("77.00", { tail: "9999" })).toBe("ignored");
+  });
+  it("says so when the alert is from a different bank than the one chosen", async () => {
+    set("bank_code", "kotak");
+    const body = vi.fn();
+    const go = (auth: string) => I.ingest(M, { messageId: `<${++n}>`, source: "t", receivedAt: Date.now(), headers: { from: ["alerts@hdfcbank.net"], subject: "Transaction alert", authResults: [auth] } }, body);
+    expect(await go("mx.google.com; dmarc=pass header.from=hdfcbank.net")).toBe("ignored");
+    expect(get<{ reason: string }>("SELECT reason FROM mails")!.reason).toBe("From HDFC Bank, but Configuration is set to Kotak Mahindra Bank");
+    expect(await go("mx.google.com; dmarc=fail header.from=hdfcbank.net")).toBe("skipped");
+    expect(body).not.toHaveBeenCalled();
+  });
+  it("refuses an IFSC from another bank", async () => {
+    const S = await import("../src/lib/schemas");
+    const b = { upi_id: "shop@idfcbank", payee_name: "S", ifsc: "KKBK0001234", bank_code: "idfc" };
+    expect(S.bank.safeParse(b).error?.issues[0].message).toMatch(/Kotak.*IDFC/);
+    expect(S.bank.safeParse({ ...b, ifsc: "IDFB0001234" }).success).toBe(true);
+    expect(S.bank.safeParse({ ...b, bank_code: "any" }).success).toBe(true);
   });
 });
 

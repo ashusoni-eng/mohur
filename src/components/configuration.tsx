@@ -60,8 +60,14 @@ function BankForm({ s, saved, next }: { s: SettingsView; saved: (s: SettingsView
   return (
     <form
       noValidate className="space-y-5"
-      onSubmit={(e) => { e.preventDefault(); void submit(async () => { saved(await api<SettingsView>("/api/settings/bank", "PUT", f)); set((x) => ({ ...x, account_number: "" })); toast("Bank and UPI details saved"); if (!live?.mail) next(); }); }}
+      onSubmit={(e) => { e.preventDefault(); void submit(async () => { const r = await api<SettingsView & { confirmed: number }>("/api/settings/bank", "PUT", f); saved(r); set((x) => ({ ...x, account_number: "" })); toast(r.confirmed ? `Saved. ${r.confirmed} waiting payment${r.confirmed === 1 ? "" : "s"} confirmed.` : "Bank and UPI details saved"); if (!live?.mail) next(); }); }}
     >
+      {s.mismatch && (
+        <div role="alert" className="flex gap-3.5 rounded-[14px] bg-amber-wash p-5 text-amber">
+          <TriangleAlert size={20} className="mt-0.5 shrink-0" />
+          <div><p className="font-semibold">Money is arriving in a different account</p><p className="mt-1 text-ink-2">Your bank says it credited the account ending <b className="num">{s.mismatch.tail}</b>, but the account saved here ends <b className="num">{s.mismatch.saved}</b>. If {s.mismatch.tail} is the account your UPI ID pays into, enter its number and IFSC below. If it is not, the UPI ID is the one to change.</p></div>
+        </div>
+      )}
       <Box title="UPI" sub="Every QR code pays this UPI ID directly. Mohur never holds your money.">
         <div className="grid gap-5 sm:grid-cols-2">
           {text("upi_id", "UPI ID", { ph: "yourshop@okhdfcbank" })}
@@ -70,7 +76,7 @@ function BankForm({ s, saved, next }: { s: SettingsView; saved: (s: SettingsView
       </Box>
       <Box title="Bank account" sub="The account behind that UPI ID. The last four digits are checked against each alert, so credits to your other accounts are ignored.">
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Bank" hint="Only this bank's email domains will be trusted.">
+          <Field label="Bank" hint="The bank your UPI ID pays into. Only its alerts are trusted.">
             {(a) => (
               <select {...a} className="field" value={f.bank_code} onChange={(e) => { const b = BANKS.find((x) => x.code === e.target.value); set({ ...f, bank_code: e.target.value, bank_name: b?.name ?? f.bank_name }); }}>
                 <option value="any">Any supported bank</option>

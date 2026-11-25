@@ -1,4 +1,4 @@
-import { trustedBank, within } from "../../banks";
+import { BANKS, trustedBank, within } from "../../banks";
 
 /**
  * Stage 1. Decides from headers alone whether a mail is a bank credit alert.
@@ -17,7 +17,7 @@ export interface SenderPolicy { bankCode: string; extraDomains: string[]; authSe
 
 export type Screen =
   | { verdict: "read"; bank: string }
-  | { verdict: "skip"; reason: string }
+  | { verdict: "skip"; reason: string; otherBank?: boolean }
   | { verdict: "suspicious"; reason: string };
 
 // Subjects that are never a credit alert, even from the bank itself.
@@ -67,6 +67,9 @@ export function screen(h: Headers, policy: SenderPolicy): Screen {
   }
   const host = h.from[0].split("@").pop() ?? "";
   const bank = trustedBank(host, policy.bankCode, policy.extraDomains);
+  const other = bank ? null : trustedBank(host, "any", []);
+  if (other && senderAuthenticated(h, host, policy.authServId))
+    return { verdict: "skip", otherBank: true, reason: `From ${other.name}, but Configuration is set to ${BANKS.find((b) => b.code === policy.bankCode)?.name ?? "another bank"}` };
   if (!bank) return { verdict: "skip", reason: `${host} is not one of your bank's sending domains` };
   if (!senderAuthenticated(h, host, policy.authServId))
     return { verdict: "suspicious", reason: "Claims to be your bank but failed DKIM/DMARC checks" };

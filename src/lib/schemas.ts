@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BANKS, bankByIfsc } from "./banks";
 import { MAX_PAISE, MIN_PAISE, parseRupees } from "./money";
 
 const text = (max: number) => z.string().trim().max(max, `Keep this under ${max} characters`);
@@ -41,6 +42,11 @@ export const bank = z.object({
   account_number: orEmpty(z.string().trim().regex(/^\d{6,18}$/, "Account number should be 6 to 18 digits")).optional(),
   ifsc: orEmpty(z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "IFSC looks like HDFC0001234")).default(""),
   bank_name: text(80).default(""), branch_name: text(80).default(""), bank_code: text(20).default("any"),
+}).superRefine((b, ctx) => {
+  // The account behind the UPI ID, its IFSC and the bank whose alerts are trusted are one and the same bank.
+  const of = b.ifsc ? bankByIfsc(b.ifsc) : undefined;
+  const chosen = BANKS.find((x) => x.code === b.bank_code);
+  if (of && chosen && of.code !== chosen.code) ctx.addIssue({ code: "custom", path: ["ifsc"], message: `This IFSC is ${of.name}, but the bank chosen is ${chosen.name}. Use the account your UPI ID pays into.` });
 });
 export const extraHeaders = text(200).default("").transform((s, ctx) => {
   const list = s.toUpperCase().split(/[\s,]+/).filter(Boolean);
