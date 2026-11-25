@@ -1,0 +1,20 @@
+import { body, ip, json, limit, publicRoute } from "@/lib/server/http";
+import { get } from "@/lib/server/db";
+import { AppError, createPayment, linkState } from "@/lib/server/payments";
+import { inr, parseRupees } from "@/lib/money";
+import type { Link } from "@/lib/types";
+import * as S from "@/lib/schemas";
+export const POST = publicRoute<{ slug: string }>(async (req, { slug }) => {
+  limit(`open:${slug}:${ip(req)}`, 20, 60_000);
+  const l = get<Link>("SELECT * FROM links WHERE slug=?", slug);
+  if (!l) throw new AppError("This payment link does not exist", 404, "not_found");
+  if (linkState(l) !== "open") throw new AppError("This payment link is no longer accepting payments", 410, "link_closed");
+  const b = await body(req, S.openLink);
+  const amount = l.amount ?? parseRupees(b.amount ?? "");
+  if (amount === null) throw new AppError("Enter an amount like 499 or 499.50");
+  if (l.min_amount && amount < l.min_amount) throw new AppError(`The minimum is ${inr(l.min_amount)}`);
+  if (l.ask_name && !b.name) throw new AppError("Enter your name");
+  if (l.ask_contact && !b.contact) throw new AppError("Enter your phone or email");
+  const p = createPayment({ merchantId: l.merchant_id, source: "link", linkId: l.id, title: l.title, amount, customerName: b.name || null, customerContact: b.contact || null, redirectUrl: l.redirect_url });
+  return json({ id: p.id }, 201);
+});

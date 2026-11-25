@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="deep">#06241C</color>
+    <style name="Mohur" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/deep</item>
+        <item name="android:colorPrimary">@color/deep</item>
+        <item name="android:colorAccent">#B8934A</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <style name="MohurDialog" parent="android:Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#0C3B2E</item>
+        <item name="android:background">#FCFDFB</item>
+    </style>
+</resources>

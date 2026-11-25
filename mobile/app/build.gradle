@@ -1,0 +1,46 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+}
+
+def signing = new Properties()
+def signingFile = rootProject.file("keystore.properties")
+if (signingFile.exists()) signingFile.withInputStream { signing.load(it) }
+
+android {
+    namespace "in.mohur.app"
+    compileSdk 35
+    defaultConfig {
+        applicationId "in.mohur.app"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+    }
+    signingConfigs {
+        if (signingFile.exists()) release {
+            storeFile rootProject.file(signing.storeFile)
+            storePassword signing.storePassword
+            keyAlias signing.keyAlias
+            keyPassword signing.keyPassword
+        }
+    }
+    buildTypes {
+        release {
+            // The app is small; shipping exactly what the tests ran is worth more than the bytes.
+            minifyEnabled false
+            if (signingFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = "17" }
+    buildFeatures { buildConfig true }
+    testOptions { unitTests { includeAndroidResources = true } }
+    lint { abortOnError true; disable "SmsAndCallLogPolicy", "BatteryLife", "SetTextI18n", "HardcodedText" }
+}
+
+dependencies {
+    implementation "com.google.zxing:core:3.5.3"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.robolectric:robolectric:4.14.1"
+}

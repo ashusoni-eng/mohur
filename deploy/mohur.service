@@ -1,0 +1,16 @@
+[Unit]
+Description=Mohur payment gateway
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/app
+EnvironmentFile=%h/.env
+# Loopback only: the outside world comes through nginx.
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p ${PORT}
+Restart=always
+RestartSec=2
+MemoryMax=700M
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
