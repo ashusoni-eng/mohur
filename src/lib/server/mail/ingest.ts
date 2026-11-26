@@ -157,6 +157,7 @@ function apply(merchantId: string, m: Incoming, bank: string, c: Credit): { outc
   }
   const p = found.payment;
   const mailId = record(merchantId, m, { ...base, outcome: "matched", reason: found.reason, payment_id: p.id });
+  if (c.utr && p.customer_utr && p.customer_utr !== c.utr) addEvent(p.id, "utr", `The UTR typed on the payment page (${p.customer_utr}) differs from the bank's (${c.utr})`);
   if (!settleInTx(p, { method: found.byUtr ? "utr" : m.source === "sms" ? "sms" : "email", mailId, utr: c.utr, vpa: c.payerVpa, name: c.payerName }))
     throw new Error(`Payment ${p.id} changed while being matched`);
   return { outcome: "matched", settled: getPayment(p.id)! };
@@ -239,9 +240,12 @@ function match(merchantId: string, at: number, c: Credit): { payment?: Payment; 
   const byId = open.filter((p) => c.paymentIds.includes(p.id));
   if (byId.length === 1) return { payment: byId[0], reason: "Amount and payment ID match" };
 
-  // 3. The paise-exact amount, inside its reserved window. A customer who gave a different UTR is ruled out.
-  const inTime = open.filter((p) => p.match_until > at && (!c.utr || !p.customer_utr || p.customer_utr === c.utr));
+  // 3. The paise-exact amount, inside its reserved window. A typed UTR helps choose between several
+  // payments, but never vetoes the only one: anyone holding the payment ID can type a UTR.
+  const inTime = open.filter((p) => p.match_until > at);
   if (inTime.length === 1) return { payment: inTime[0], reason: "Exact amount match" };
+  const agree = inTime.filter((p) => !c.utr || !p.customer_utr || p.customer_utr === c.utr);
+  if (agree.length === 1) return { payment: agree[0], reason: "Exact amount match; the other payments gave a different UTR" };
   if (inTime.length > 1) return { many: true, reason: `${inTime.length} open payments are waiting for ${inr(c.amount)}` };
   return { reason: "The only payment for this amount is past its matching window" };
 }

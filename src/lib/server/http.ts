@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { currentMerchant } from "./auth";
-import { AppError } from "./payments";
+import { AppError, getPayment } from "./payments";
 import { get, run } from "./db";
 import { decrypt, hmac, safeEqual, sha256 } from "./crypto";
 import { env } from "./env";
-import type { Device, Merchant } from "../types";
+import type { Device, Merchant, Payment } from "../types";
 
 export const json = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { "cache-control": "no-store" } });
 
@@ -99,8 +99,20 @@ export function limit(key: string, max: number, windowMs: number) {
   if (++h.n > max) throw new AppError("Too many attempts. Wait a moment and try again.", 429, "rate_limited");
 }
 
-export function ip(req: Request) {
+export const ip = (req: Request) => ipFrom(req.headers);
+export function ipFrom(h: Headers) {
   // Without a trusted proxy the header is whatever the client typed.
   if (!env.trustProxy) return "direct";
-  return req.headers.get("x-forwarded-for")?.split(",").pop()?.trim() || "direct";
+  return h.get("x-forwarded-for")?.split(",").pop()?.trim() || "direct";
+}
+
+/**
+ * A payment looked up by ID from a public page. Every public route goes through here, so a wrong
+ * guess costs the same everywhere: 30 a minute per visitor. Polling a real payment is never slowed.
+ */
+export function publicPayment(h: Headers, id: string): Payment {
+  const p = /^[0-9a-f]{10}$/i.test(id) ? getPayment(id) : undefined;
+  if (p) return p;
+  limit(`miss:${ipFrom(h)}`, 30, 60_000);
+  throw new AppError("No payment with that ID", 404, "not_found");
 }

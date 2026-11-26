@@ -250,6 +250,28 @@ describe("UTR", () => {
   });
 });
 
+describe("someone else holding the payment ID", () => {
+  it("cannot stop the only payment for an amount from confirming by typing a wrong UTR", async () => {
+    const p = make();
+    I.submitUtr(p.id, "999999999999");
+    expect(await mail("500.00", { utr: "633000000001" })).toBe("matched");
+    expect(P.getPayment(p.id)).toMatchObject({ status: "paid", utr: "633000000001" });
+    expect(P.getEvents(p.id).some((e) => e.detail.includes("differs from the bank's"))).toBe(true);
+  });
+  it("still uses typed UTRs to tell same-amount payments apart", async () => {
+    set("amount_mode", "off");
+    const a = make(), b = make();
+    I.submitUtr(a.id, "999999999999");
+    I.submitUtr(b.id, "633000000001");
+    expect(await mail("500.00", { utr: "633000000001" })).toBe("matched");
+    expect([st(a.id), st(b.id)]).toEqual(["pending", "paid"]);
+    const c = make(), d = make();
+    I.submitUtr(c.id, "888888888888");
+    expect(await mail("500.00", { utr: "633000000002" })).toBe("matched");
+    expect([st(c.id), st(d.id)]).toEqual(["pending", "paid"]);
+  });
+});
+
 describe("manual decisions", () => {
   it("approves once, and paid is final", () => {
     const p = make();
