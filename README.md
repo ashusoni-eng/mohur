@@ -1,17 +1,52 @@
+<p align="center">
+  <img src="docs/social-preview.png" alt="Mohur: open-source UPI payment gateway with 0% gateway fee" width="820">
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-b8934a" alt="MIT licence"></a>
+  <a href="https://github.com/ashusoni-eng/mohur/stargazers"><img src="https://img.shields.io/github/stars/ashusoni-eng/mohur?style=flat&color=1b7a58" alt="GitHub stars"></a>
+  <a href="https://mohur.sanjeevaniprime.com"><img src="https://img.shields.io/badge/live-mohur.sanjeevaniprime.com-0c3b2e" alt="Live site"></a>
+  <a href="https://mohur.sanjeevaniprime.com/install"><img src="https://img.shields.io/badge/Android-app-1b7a58" alt="Android app"></a>
+</p>
+
 # Mohur
 
 **Open source · 100% free · MIT licence**
 
-A UPI payment gateway with no gateway fee. Customers pay your own UPI ID; Mohur reads your bank's
-credit alert, from Gmail or from SMS on a paired Android phone, and confirms the payment. (A *mohur* was the gold coin of the Mughal mints.)
+**Stop paying 2% on every UPI payment.** Customers pay straight to your own UPI ID. Mohur reads your bank's credit
+alert, from Gmail or from SMS on a paired Android phone, and marks the payment paid in seconds. No gateway, no fees,
+no one holding your money. (A *mohur* was the gold coin of the Mughal mints.)
+
+> On ₹10 lakh a month, a 2% gateway takes **₹2.4 lakh a year**. Mohur takes nothing.
+
+If Mohur saves you fees, **please star the repo**. It is how other businesses find it.
+
+| | Typical payment gateway | Mohur |
+|---|---|---|
+| Fee per UPI payment | about 2% | **₹0** |
+| Where money goes | Gateway, then settled to you | **Straight to your bank** |
+| Who holds your data | The gateway | **You** (self-host) |
+| Code | Closed | **Open, MIT** |
+
+## Features
+
+- **Payment links and QR codes**: fixed or open amounts, each customer gets their own QR.
+- **Confirms by itself**: from your bank's Gmail alert or SMS, usually within seconds, with a live checkout page.
+- **Forged receipts never count**: mail must pass Gmail's DKIM/DMARC from your bank; SMS must come from its registered sender.
+- **On hold, never lost**: payment ID, UTR entry, manual approve and decline, re-read Gmail on demand.
+- **Dashboard**: collections, success rate, fees saved, busiest hours, needs-review queue.
+- **Android app** for bank SMS, with on-phone filtering so OTPs never leave the phone.
+- **Developer API and signed webhooks**, idempotent payment creation.
+- **Multi-account**, with permanent account deletion.
+
+<p align="center">
+  <img src="docs/checkout.png" alt="Checkout page" width="250">
+  <img src="docs/paid.png" alt="Payment received" width="250">
+  <img src="docs/app.png" alt="Android app" width="250">
+</p>
+<p align="center"><img src="docs/dashboard.png" alt="Dashboard" width="820"></p>
 
 TypeScript, Next.js 16, React 19, Tailwind 4, SQLite. Android app in Kotlin.
-
-**Live:** https://mohur.sanjeevaniprime.com
-
-![Checkout](docs/checkout.png)
-
-<img src="docs/app.png" alt="Android app" width="260">
 
 ## Open source and free
 
@@ -156,3 +191,8 @@ that installs over the old app. Copy a new build to `public/download/mohur.apk`.
 - UPI only, ₹1 to ₹1,00,000 per payment. No refunds: Mohur cannot move money.
 - Bank domains, SMS senders and alert wording vary and change. Test yours in Alert Lab before relying on it.
 - Collect only into your own account. Collecting on behalf of others in India needs an RBI payment aggregator licence.
+
+## Contributing
+
+Pull requests are welcome, especially **new bank email and SMS formats**: see [CONTRIBUTING.md](CONTRIBUTING.md) and the
+issues labelled *good first issue*.

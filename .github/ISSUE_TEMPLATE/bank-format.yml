@@ -1,0 +1,29 @@
+name: My bank's alert is not read
+description: An email or SMS from your bank was not recognised. Great first contribution.
+title: "Bank format: <bank name> <email or SMS>"
+labels: ["bank format", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Please **replace every real detail** before posting: account digits, names, UPI IDs, UTRs and amounts.
+        Keep the wording, spacing and punctuation exactly as the bank sent it.
+  - type: input
+    id: bank
+    attributes: { label: Bank, placeholder: IDFC FIRST Bank }
+    validations: { required: true }
+  - type: dropdown
+    id: kind
+    attributes: { label: Kind of alert, options: [Email, SMS] }
+    validations: { required: true }
+  - type: input
+    id: sender
+    attributes: { label: Sender, description: "Email domain (alerts@bank.com) or SMS header (VM-HDFCBK-S)." }
+    validations: { required: true }
+  - type: textarea
+    id: text
+    attributes: { label: "Subject and text, with real details replaced", render: text }
+    validations: { required: true }
+  - type: textarea
+    id: lab
+    attributes: { label: What Alert Lab said, description: "Configuration → Alert Lab → Read this mail / SMS." }

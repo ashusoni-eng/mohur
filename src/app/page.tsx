@@ -6,13 +6,22 @@ import { GithubMark, GithubStars } from "@/components/github";
 import { LinkButton } from "@/components/ui";
 import { currentMerchant } from "@/lib/server/auth";
 import { repoUrl } from "@/lib/server/github";
+import { env } from "@/lib/server/env";
 import { app } from "@/lib/app-release";
+
+export const metadata = { alternates: { canonical: "/" } };
 
 export default async function Home() {
   const m = await currentMerchant();
+  const ld = {
+    "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Mohur", applicationCategory: "FinanceApplication", operatingSystem: "Web, Android",
+    description: "Free, open-source UPI payment gateway that confirms payments from your bank's email or SMS, with no gateway fee.",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "INR" }, license: "https://opensource.org/licenses/MIT", codeRepository: repoUrl, url: env.appUrl,
+  };
   const go = m ? { href: "/app", label: "Open dashboard" } : { href: "/signup", label: "Create account" };
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <div className="relative overflow-hidden bg-deep text-white">
         <Guilloche density={2} className="pointer-events-none absolute -right-[300px] -top-[170px] h-[1060px] w-[1060px] text-brass-mid/35 max-md:-right-[480px] max-md:text-brass-mid/20" />
         <header className="relative mx-auto flex max-w-[1180px] items-center justify-between px-6 py-6">

@@ -11,5 +11,4 @@ Thanks for helping. Changes reach `main` through pull requests only.
 New bank email or SMS formats are especially welcome: add the wording to `tests/parse.test.ts` or `tests/sms.test.ts`
 and the sender to `src/lib/banks.ts`.
 
-Found a security problem, such as a way to make a forged alert confirm a payment? Please report it privately to the
-maintainer instead of opening a public issue.
+Found a security problem, such as a way to make a forged alert confirm a payment? Please report it privately as described in [SECURITY.md](SECURITY.md), not in a public issue.
