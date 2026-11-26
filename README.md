@@ -1,5 +1,7 @@
 # Mohur
 
+**Open source · 100% free · MIT licence**
+
 A UPI payment gateway with no gateway fee. Customers pay your own UPI ID; Mohur reads your bank's
 credit alert, from Gmail or from SMS on a paired Android phone, and confirms the payment. (A *mohur* was the gold coin of the Mughal mints.)
 
@@ -11,7 +13,30 @@ TypeScript, Next.js 16, React 19, Tailwind 4, SQLite. Android app in Kotlin.
 
 <img src="docs/app.png" alt="Android app" width="260">
 
-## Run
+## Open source and free
+
+Mohur is open source under the [MIT licence](LICENSE). It costs nothing: no fees, plans or limits, for personal or
+commercial use.
+
+- **Your money stays yours.** Customers pay your own UPI ID. Mohur never holds or moves money.
+- **Host it yourself.** Clone it and run it on your own server, so your payments, settings and Gmail access stay with you.
+- **Check it.** Every line is public, including exactly how a bank alert is trusted and matched (see below).
+
+Like any software, it comes with no warranty. Test it with a ₹1 payment before relying on it, and keep it updated.
+
+## Self-host
+
+```bash
+git clone https://github.com/ashusoni-eng/mohur.git
+cd mohur
+npm ci && npm run build
+cp .env.example .env   # set APP_URL and APP_SECRET
+npm start              # put it behind nginx or Caddy with https
+```
+
+Then create your account, add your UPI ID and bank, and connect Gmail or pair your Android phone.
+
+## Run locally
 
 ```bash
 npm install

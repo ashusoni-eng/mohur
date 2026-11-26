@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Check, Download, Smartphone } from "lucide-react";
+import { ArrowRight, Check, Code2, Download, Landmark, Server, Smartphone } from "lucide-react";
 import { Guilloche, Mark, Reeding, Wordmark } from "@/components/brand";
 import { FeeSlider } from "@/components/fee-slider";
 import { GithubMark, GithubStars } from "@/components/github";
@@ -27,6 +27,7 @@ export default async function Home() {
         </header>
         <section className="relative mx-auto grid max-w-[1180px] items-center gap-12 px-6 pb-24 pt-14 lg:grid-cols-[1.35fr_1fr] lg:pb-32 lg:pt-20">
           <div>
+            <p className="mb-6 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-full border border-brass-lt/40 bg-white/[.06] px-4 py-1.5 text-[14px] font-semibold tracking-[0.02em] text-brass-lt"><span>Open source</span><span aria-hidden className="text-brass-lt/50">·</span><span>100% free</span><span aria-hidden className="text-brass-lt/50">·</span><span>MIT licence</span></p>
             <h1 className="font-display text-[clamp(42px,5.6vw,70px)] leading-[1.08]">Take UPI payments. <br className="max-lg:hidden" />Keep every rupee.</h1>
             <p className="mt-6 max-w-[50ch] text-[18px] leading-relaxed text-white/85">Customers scan and pay your own UPI ID. Mohur reads your bank&rsquo;s email or SMS alert and confirms the payment in seconds, so there is no 2% to give away.</p>
             <div className="mt-9 flex flex-wrap gap-4">
@@ -80,6 +81,26 @@ export default async function Home() {
           <FeeSlider />
         </section>
 
+        <section className="relative overflow-hidden bg-deep text-white">
+          <Guilloche still className="pointer-events-none absolute -right-60 top-1/2 h-[760px] w-[760px] -translate-y-1/2 text-brass-mid/25" />
+          <div className="relative mx-auto max-w-[1180px] px-6 py-20 lg:py-28">
+            <p className="text-[14px] font-semibold uppercase tracking-[0.18em] text-brass-lt">MIT licence</p>
+            <h2 className="mt-3 max-w-[18ch] font-display text-[clamp(32px,4.4vw,52px)] leading-tight">Open source. 100% free.</h2>
+            <p className="mt-4 max-w-[60ch] text-[17px] leading-relaxed text-white/85">No fees, no plans, no limits. Use Mohur as it is, change it, or run it on your own server for your business.</p>
+            <ul className="mt-12 grid gap-x-12 gap-y-9 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                [Landmark, "Your money, your bank", "Customers pay your own UPI ID. Mohur never holds, touches or moves your money."],
+                [Server, "Host it yourself", "Run it on your own server, so your payments and settings stay with you."],
+                [Code2, "Every line is public", "Anyone can read the code and see exactly how a payment is confirmed."],
+                [Check, "Free, for good", "MIT licensed. Use it, change it and share it, for personal or commercial work."],
+              ].map(([Icon, t, d]) => {
+                const I = Icon as typeof Check;
+                return <li key={t as string}><I size={26} strokeWidth={1.6} className="text-brass-lt" /><h3 className="mt-4 font-display text-[21px]">{t as string}</h3><p className="mt-2 text-white/80">{d as string}</p></li>;
+              })}
+            </ul>
+          </div>
+        </section>
+
         <section id="app" className="scroll-mt-6 border-t border-line bg-paper">
           <div className="mx-auto grid max-w-[1180px] items-center gap-12 px-6 py-20 md:grid-cols-[1fr_auto] lg:py-24">
             <div>
@@ -110,7 +131,7 @@ export default async function Home() {
           </div>
         </section>
       </main>
-      <footer className="bg-deep py-8 text-white/70"><div className="mx-auto flex max-w-[1180px] px-6 flex-wrap items-center justify-between gap-4"><span className="text-brass-lt"><Wordmark size={28} /></span><span className="text-[14px]">A mohur was the gold coin of the Mughal mints.</span><nav className="flex items-center gap-6 text-[14px]"><Link href="/install" className="hover:text-white">Android app</Link><Link href="/status" className="hover:text-white">Check a payment</Link><a href={repoUrl} target="_blank" rel="noreferrer" aria-label="Mohur on GitHub" className="hover:text-white"><GithubMark size={22} /></a></nav></div></footer>
+      <footer className="bg-deep py-8 text-white/70"><div className="mx-auto flex max-w-[1180px] px-6 flex-wrap items-center justify-between gap-4"><span className="text-brass-lt"><Wordmark size={28} /></span><span className="text-[14px]">Open source and free under the MIT licence. A mohur was the gold coin of the Mughal mints.</span><nav className="flex items-center gap-6 text-[14px]"><Link href="/install" className="hover:text-white">Android app</Link><Link href="/status" className="hover:text-white">Check a payment</Link><a href={repoUrl} target="_blank" rel="noreferrer" aria-label="Mohur on GitHub" className="hover:text-white"><GithubMark size={22} /></a></nav></div></footer>
     </>
   );
 }
