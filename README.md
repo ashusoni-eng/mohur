@@ -28,16 +28,15 @@ Back up `data/` including `secret.key`: without the key, saved Gmail access and 
 
 ## Deploy
 
-```bash
-# once, on the server, as root (creates the mohur user, nginx site and certificate)
-sudo bash setup-server.sh your.domain deploy-key.pub
+Mohur needs **one long-lived Node process** on a server with a persistent disk (a VPS, Docker, Railway, Render or Fly).
+Serverless hosts such as Vercel will not work: the mailbox listener and payment clocks must keep running, and the database is a file.
 
-# every release, from your machine: tests, builds locally, ships code and build, restarts
-deploy/deploy.sh your-ssh-host
+```bash
+npm ci && npm run build
+APP_URL=https://pay.example.com npm start   # behind a reverse proxy with https; see .env.example
 ```
 
-Mohur runs as its own unprivileged user on loopback behind nginx. The database and settings live in that user's home, outside the
-code, and are copied nightly to `~/backups` (14 days). Set `SIGNUPS=closed` in `~/.env` to stop new accounts.
+Back up `DATA_DIR` (the database and `secret.key`) and keep the process on loopback behind nginx or similar.
 
 ## Set up
 
