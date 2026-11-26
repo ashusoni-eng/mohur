@@ -22,6 +22,9 @@ commercial use.
 - **Host it yourself.** Clone it and run it on your own server, so your payments, settings and Gmail access stay with you.
 - **Check it.** Every line is public, including exactly how a bank alert is trusted and matched (see below).
 
+Accounts on a shared server can be deleted permanently by their owner at any time (Configuration → Account); everything
+in them is erased, and nightly backups age out after 14 days.
+
 Like any software, it comes with no warranty. Test it with a ₹1 payment before relying on it, and keep it updated.
 
 ## Self-host

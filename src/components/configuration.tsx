@@ -296,6 +296,38 @@ function Account({ me }: { me: { name: string; business: string; email: string }
           <Button type="submit" busy={a2.busy}>Change password</Button>
         </form>
       </Box>
+      <DeleteAccount />
     </>
+  );
+}
+
+function DeleteAccount() {
+  const [open, setOpen] = useState(false);
+  const [f, set] = useState({ password: "", confirm: "" });
+  const { busy, errors, submit } = useSubmit();
+  return (
+    <section className="rounded-[14px] border border-carnelian/35 bg-paper p-6 sm:p-8">
+      <h2 className="font-display text-[22px] leading-tight">Delete account</h2>
+      <p className="mt-1 max-w-[64ch] text-ink-2">Permanently deletes this account and everything in it: payments, links, bank details, Gmail access, paired phones, API keys and webhooks. Open payment links stop working. This cannot be undone.</p>
+      <p className="mt-2 max-w-[64ch] text-[14px] text-ink-3">Money already paid stays in your bank account; Mohur never holds it. Export your payments first if you want a record. A copy may remain in the server&apos;s nightly backups for up to 14 days.</p>
+      {!open ? (
+        <div className="mt-5 flex flex-wrap gap-3">
+          <LinkButton variant="quiet" href="/api/payments/export" download>Export payments (CSV)</LinkButton>
+          <Button variant="danger" onClick={() => setOpen(true)}>Delete my account</Button>
+        </div>
+      ) : (
+        <form noValidate className="mt-6 space-y-5" onSubmit={(e) => { e.preventDefault(); void submit(async () => { await api("/api/account/delete", "POST", f); location.href = "/login?deleted=1"; }); }}>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Your password" error={errors.password}>{(a) => <input {...a} className="field" type="password" autoComplete="current-password" value={f.password} onChange={(e) => set({ ...f, password: e.target.value })} />}</Field>
+            <Field label="Type DELETE to confirm" error={errors.confirm}>{(a) => <input {...a} className="field font-mono" autoComplete="off" spellCheck={false} value={f.confirm} onChange={(e) => set({ ...f, confirm: e.target.value })} />}</Field>
+          </div>
+          <FormError e={errors.form} />
+          <div className="flex flex-wrap gap-3">
+            <Button type="submit" variant="danger" busy={busy} disabled={f.confirm !== "DELETE" || !f.password}>Delete account permanently</Button>
+            <Button variant="ghost" onClick={() => { setOpen(false); set({ password: "", confirm: "" }); }}>Cancel</Button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }

@@ -75,6 +75,7 @@ export const lab = z.object({ channel: z.enum(["email", "sms"]).default("email")
 export const webhook = z.object({ url: httpUrl });
 export const apiKey = z.object({ label: req("a label", 60) });
 export const passwordChange = z.object({ current: z.string().min(1, "Enter your current password").max(200), next: password });
+export const deleteAccount = z.object({ password: z.string().min(1, "Enter your password").max(200), confirm: z.literal("DELETE", { error: "Type DELETE to confirm" }) });
 export const profile = z.object({ name: req("your name", 80), business: req("your business name", 80) });
 
 const paise = z.number({ error: "amount is required, in paise" }).int("amount must be whole paise").min(MIN_PAISE, "amount must be at least 100 paise").max(MAX_PAISE, "amount must be at most 10000000 paise");

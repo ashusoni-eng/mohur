@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { get, run, tx } from "./db";
+import { db, get, run, tx } from "./db";
 import { hashPassword, newSlug, randomToken, sha256, verifyPassword } from "./crypto";
 import { AppError } from "./payments";
 import { env } from "./env";
@@ -57,9 +57,21 @@ export async function signIn(email: string, password: string) {
   return m.id;
 }
 
+/**
+ * Deletes an account and everything that belongs to it: settings, bank details, Gmail access, paired
+ * phones, links, payments, alerts, API keys and webhooks. Every table cascades from merchants.
+ */
+export async function deleteAccount(id: string, password: string) {
+  const m = get<{ password_hash: string }>("SELECT password_hash FROM merchants WHERE id=?", id);
+  if (!m || !(await verifyPassword(password, m.password_hash))) throw new AppError("Password is incorrect", 403, "wrong_password");
+  tx(() => run("DELETE FROM merchants WHERE id=?", id));
+  // Fold the write-ahead log into the database, so no copy of the deleted pages is left beside it.
+  db().pragma("wal_checkpoint(TRUNCATE)");
+}
+
 export async function changePassword(id: string, current: string, next: string) {
   const m = get<{ password_hash: string }>("SELECT password_hash FROM merchants WHERE id=?", id);
-  if (!m || !(await verifyPassword(current, m.password_hash))) throw new AppError("Current password is incorrect", 401);
+  if (!m || !(await verifyPassword(current, m.password_hash))) throw new AppError("Current password is incorrect", 403, "wrong_password");
   const hash = await hashPassword(next);
   tx(() => {
     run("UPDATE merchants SET password_hash=? WHERE id=?", hash, id);

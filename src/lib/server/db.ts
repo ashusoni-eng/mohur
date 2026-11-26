@@ -104,6 +104,8 @@ function open() {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
+  // Deleted rows are overwritten, not just marked free, so a deleted account cannot be read back from the file.
+  db.pragma("secure_delete = ON");
   return db;
 }
 
