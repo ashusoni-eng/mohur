@@ -7,6 +7,7 @@
   <a href="https://github.com/ashusoni-eng/mohur/stargazers"><img src="https://img.shields.io/github/stars/ashusoni-eng/mohur?style=flat&color=1b7a58" alt="GitHub stars"></a>
   <a href="https://mohur.sanjeevaniprime.com"><img src="https://img.shields.io/badge/live-mohur.sanjeevaniprime.com-0c3b2e" alt="Live site"></a>
   <a href="https://mohur.sanjeevaniprime.com/install"><img src="https://img.shields.io/badge/Android-app-1b7a58" alt="Android app"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.1.0-b8934a" alt="Version 1.1.0"></a>
 </p>
 
 # Mohur
@@ -20,6 +21,10 @@ no one holding your money. (A *mohur* was the gold coin of the Mughal mints.)
 > On ₹10 lakh a month, a 2% gateway takes **₹2.4 lakh a year**. Mohur takes nothing.
 
 If Mohur saves you fees, **please star the repo**. It is how other businesses find it.
+
+**New in 1.1:** several UPI accounts with limits and rotation, a test mode with simulated payments, lookups by your own
+order number, safe redirects, ordered webhooks, your own colour and logo on checkout, and a public
+[API reference](https://mohur.sanjeevaniprime.com/docs). See the [changelog](CHANGELOG.md).
 
 | | Typical payment gateway | Mohur |
 |---|---|---|
@@ -41,7 +46,7 @@ If Mohur saves you fees, **please star the repo**. It is how other businesses fi
 - **Developer API and signed webhooks**: idempotent payment creation, lookup by your own order number, `upi_intent` links, event IDs and per-payment sequence numbers. Full reference at `/docs`.
 - **Safe redirects**: limit `redirect_url` to your own domains.
 - **Your checkout, your brand**: your colour and logo on checkout and payment-link pages.
-- **Multi-account**, with permanent account deletion.
+- **Many businesses on one server**, each able to delete its account permanently.
 
 <p align="center">
   <img src="docs/checkout.png" alt="Checkout page" width="250">
@@ -76,7 +81,7 @@ cp .env.example .env   # set APP_URL and APP_SECRET
 npm start              # put it behind nginx or Caddy with https
 ```
 
-Then create your account, add your UPI ID and bank, and connect Gmail or pair your Android phone.
+Then create your account, add a UPI account, and connect Gmail or pair your Android phone.
 
 ## Run locally
 
@@ -105,6 +110,17 @@ APP_URL=https://pay.example.com npm start   # behind a reverse proxy with https;
 
 Back up `DATA_DIR` (the database and `secret.key`) and keep the process on loopback behind nginx or similar.
 
+### Upgrading from 1.0
+
+Back up `DATA_DIR`, then pull, `npm ci && npm run build`, and restart. The database upgrades itself on first start,
+in one transaction:
+
+- Your UPI ID and bank details become your first UPI account, marked default. Nothing else changes until you add more.
+- Existing API keys (`mhr_…`) keep working as **live** keys, and existing webhook endpoints receive live events.
+- `PUT /api/settings/bank` is gone; manage accounts under Configuration → UPI accounts, or `/api/upi-accounts`.
+- Webhook bodies gain `sequence` and `livemode`, and payment objects gain `note`, `livemode`, `customer.email` and
+  `upi_intent`. Receivers that ignore unknown fields need no change.
+
 ## Set up
 
 1. Create an account.
@@ -114,9 +130,35 @@ Back up `DATA_DIR` (the database and `secret.key`) and keep the process on loopb
    for a "Continue with Google" button (Gmail API, `gmail.readonly`, redirect URI `{APP_URL}/api/mail/google/callback`).
 4. Configuration → Alert Lab: paste a real alert from your bank and check that it is read correctly.
 5. Send yourself ₹1 and watch it settle.
+6. Optional: Configuration → Checkout look for your colour and logo, and Developers → Allowed redirect domains
+   before you use the API.
 
 **Check first that your bank emails you for every UPI credit.** Some send only SMS, or only above a minimum amount.
 Pair a phone (below) to cover that. With neither alert, payments stay on hold for you to approve.
+
+## Developer API
+
+Full reference with curl, Node.js, PHP and Python examples: **`/docs`** on your server
+([live copy](https://mohur.sanjeevaniprime.com/docs)).
+
+Start with a **test key** (Developers → API keys → Test). Test payments show no UPI ID, are never matched to your bank,
+stay out of your dashboard, and only reach test webhooks. Move them yourself:
+
+```bash
+curl $APP_URL/api/v1/payments -H "Authorization: Bearer mhr_test_..." -H "Content-Type: application/json" \
+  -d '{ "amount": 49900, "title": "Order 1042", "reference": "order-1042" }'
+
+curl $APP_URL/api/v1/payments/order-1042/simulate -H "Authorization: Bearer mhr_test_..." \
+  -H "Content-Type: application/json" -d '{ "outcome": "paid" }'
+```
+
+Swap in a `mhr_live_` key when ready. A few things worth knowing:
+
+- `GET /api/v1/payments/{id}` takes Mohur's payment ID or your own `reference` (newest wins).
+- `upi_intent` in the response opens the customer's UPI app directly, while the payment can still be paid.
+- Once you list redirect domains, any other `redirect_url` is refused with `422 redirect_not_allowed`.
+- Webhooks carry `mohur-event-id` (the same in every retry: deduplicate on it) and `mohur-sequence` (counts up per
+  payment: ignore anything lower than what you already applied), signed in `mohur-signature`.
 
 ## How a payment moves
 
@@ -136,7 +178,7 @@ pending ──customer taps "I have paid"──▶ verifying ──60 s, no mail
 1. **Headers only.** Subject must look like a credit alert. Otherwise the body is never downloaded.
 2. **Sender.** Exact bank domain, and Gmail's own topmost `Authentication-Results` must show aligned DKIM or DMARC. Forgeries go to Bank alerts → Suspicious.
 3. **Body.** One unambiguous completed credit. Debits, refunds, offers, pending and failed transfers, or two different amounts are refused.
-4. **Match.** Account digits agree, UTR unused, and the amount equals exactly one open payment created before the mail. Equal amounts in flight are told apart by paise, and an amount stays reserved until its window ends.
+4. **Match.** The credit is into the UPI account the payment was issued for (bank and last digits agree), UTR unused, and the amount equals exactly one open payment created before the mail. Equal amounts in flight are told apart by paise, and an amount stays reserved until its window ends.
 
 Anything short of that waits for a person under Bank alerts → Needs review.
 
@@ -183,11 +225,15 @@ that installs over the old app. Copy a new build to `public/download/mohur.apk`.
 | Path | What |
 |---|---|
 | `src/lib/server/mail/` | `screen` (headers), `parse` (body), `ingest` (matching), `imap`, `google` |
-| `src/lib/server/payments.ts` | Payment state machine; `settleInTx` is the only way to become paid |
+| `src/lib/server/payments.ts` | Payment state machine; `settleInTx` is the only way to become paid; test-mode `simulate` |
+| `src/lib/server/accounts.ts` | UPI accounts, rotation and daily or monthly limits |
+| `src/lib/server/webhooks.ts` | Payment object, event sequence, signed delivery with retries |
+| `src/lib/server/brand.ts` | Checkout logo and colour checks |
 | `src/lib/server/devices.ts`, `mail/sms.ts` | Paired phones and SMS intake |
 | `mobile/` | Android app |
 | `src/lib/server/engine.ts` | Mailbox listeners, clocks, webhook sender |
-| `src/app/api/v1` | REST API (reference at `/docs`) |
+| `src/app/api/v1` | REST API |
+| `src/app/docs` | Public API reference |
 | `src/lib/banks.ts` | Trusted bank domains |
 
 ## Limits

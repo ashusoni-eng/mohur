@@ -1,6 +1,6 @@
 {
   "name": "mohur",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Mohur - a zero-fee UPI payment gateway that settles itself from your bank's email alerts.",
   "scripts": {
