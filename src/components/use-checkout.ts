@@ -24,7 +24,7 @@ export function useCheckout(initial: CheckoutView) {
     return () => { es.close(); clearInterval(poll); };
   }, [id, done]);
 
-  const act = async (what: "claim" | "utr", data: unknown = {}) => {
+  const act = async (what: "claim" | "utr" | "simulate", data: unknown = {}) => {
     setBusy(true);
     setError(null);
     try { set(await api<CheckoutView>(`/api/public/payments/${id}/${what}`, "POST", data)); return true; } catch (e) { setError(message(e)); return false; } finally { setBusy(false); }

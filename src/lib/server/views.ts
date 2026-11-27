@@ -1,6 +1,8 @@
 import { all, get } from "./db";
 import { decrypt } from "./crypto";
-import { getSettings, upiUri } from "./payments";
+import { getSettings, upiFor } from "./payments";
+import { accountForPayment, accountsView } from "./accounts";
+import { sha256 } from "./crypto";
 import type { Device, Link, Mail, MailAccount, Payment, PaymentStatus } from "../types";
 import { accountMismatch } from "./mail/ingest";
 import { qrPath } from "../qr";
@@ -10,16 +12,23 @@ export function checkoutView(p: Payment) {
   const s = getSettings(p.merchant_id);
   const biz = get<{ business: string }>("SELECT business FROM merchants WHERE id=?", p.merchant_id)!.business;
   const live = p.status === "pending" || p.status === "verifying";
-  const uri = live && s.upi_id ? upiUri(p, s) : null;
+  const upi = live ? upiFor(p) : null;
+  const acct = p.test ? undefined : accountForPayment(p);
   return {
     id: p.id, status: p.status, title: p.title, amount: p.amount, payable: p.payable, business: biz, createdAt: p.created_at,
     qrUntil: p.qr_until, verifyUntil: p.verify_until, verifySeconds: s.verify_seconds, timerStart: s.timer_start, claimed: !!p.claimed_at, hasUtr: !!p.customer_utr,
     settledAt: p.settled_at, utr: p.status === "paid" ? p.utr : null, redirectUrl: p.status === "paid" ? p.redirect_url : null,
-    support: s.support_contact, now: Date.now(), upi: uri ? { uri, vpa: s.upi_id!, qr: qrPath(uri) } : null,
-    bank: live && s.show_bank && s.account_number_enc ? { holder: s.account_holder, number: decrypt(s.account_number_enc), ifsc: s.ifsc, bank: s.bank_name } : null,
+    support: s.support_contact, now: Date.now(), upi: upi ? { ...upi, qr: qrPath(upi.uri) } : null,
+    bank: live && s.show_bank && acct?.account_number_enc ? { holder: acct.account_holder, number: decrypt(acct.account_number_enc), ifsc: acct.ifsc, bank: acct.bank_name } : null,
+    test: !!p.test,
+    brand: brandOf(p.merchant_id, s),
   };
 }
 export type CheckoutView = ReturnType<typeof checkoutView>;
+/** The merchant's colour and logo, for their customer-facing pages. */
+export function brandOf(merchantId: string, s = getSettings(merchantId)) {
+  return { color: s.brand_color, logo: s.brand_logo ? `/api/public/brand/${merchantId}?v=${sha256(s.brand_logo).slice(0, 10)}` : null };
+}
 
 const DAY = 86_400_000;
 const IST = 5.5 * 3_600_000;
@@ -30,7 +39,7 @@ export function dashboard(merchantId: string, days: number) {
   const today = istDay(now);
   const start = (today - days + 1) * DAY - IST;
   const prev = start - days * DAY;
-  const rows = all<Payment>("SELECT * FROM payments WHERE merchant_id=? AND created_at>=?", merchantId, prev);
+  const rows = all<Payment>("SELECT * FROM payments WHERE merchant_id=? AND test=0 AND created_at>=?", merchantId, prev);
   const cur = rows.filter((p) => p.created_at >= start);
   const before = rows.filter((p) => p.created_at < start);
   const sum = (a: Payment[]) => a.reduce((t, p) => t + p.payable, 0);
@@ -69,8 +78,8 @@ export function dashboard(merchantId: string, days: number) {
   };
   const auto = paid.filter((p) => p.method !== "manual");
   const speeds = auto.filter((p) => p.settled_at).map((p) => (p.settled_at! - (p.claimed_at && p.claimed_at < p.settled_at! ? p.claimed_at : p.created_at)) / 1000).sort((a, b) => a - b);
-  const hold = all<Payment>("SELECT * FROM payments WHERE merchant_id=? AND status='on_hold' ORDER BY created_at DESC LIMIT 50", merchantId);
-  const life = get<{ a: number | null; n: number }>("SELECT SUM(payable) a, COUNT(*) n FROM payments WHERE merchant_id=? AND status='paid'", merchantId)!;
+  const hold = all<Payment>("SELECT * FROM payments WHERE merchant_id=? AND test=0 AND status='on_hold' ORDER BY created_at DESC LIMIT 50", merchantId);
+  const life = get<{ a: number | null; n: number }>("SELECT SUM(payable) a, COUNT(*) n FROM payments WHERE merchant_id=? AND test=0 AND status='paid'", merchantId)!;
 
   return {
     days, hourly, series, heat, status,
@@ -87,7 +96,7 @@ export function dashboard(merchantId: string, days: number) {
     byHandle: group((p) => (p.payer_vpa ? "@" + p.payer_vpa.split("@")[1] : null)).sort((a, b) => b.count - a.count).slice(0, 5),
     topLinks: group((p) => (p.source === "link" ? p.title : null)).slice(0, 5),
     strays: get<{ n: number; a: number | null }>("SELECT COUNT(*) n, SUM(amount) a FROM mails WHERE merchant_id=? AND outcome IN ('unmatched','ambiguous')", merchantId)!,
-    recent: all<Payment>("SELECT * FROM payments WHERE merchant_id=? ORDER BY created_at DESC LIMIT 8", merchantId),
+    recent: all<Payment>("SELECT * FROM payments WHERE merchant_id=? AND test=0 ORDER BY created_at DESC LIMIT 8", merchantId),
   };
 }
 export type Dashboard = ReturnType<typeof dashboard>;
@@ -99,10 +108,11 @@ export const listLinks = (merchantId: string) =>
      FROM links l LEFT JOIN payments p ON p.link_id=l.id WHERE l.merchant_id=? GROUP BY l.id ORDER BY l.created_at DESC`, merchantId,
   );
 
-export interface PaymentFilter { status?: string; q?: string; source?: string; page?: number; size?: number }
+export interface PaymentFilter { status?: string; q?: string; source?: string; reference?: string; test?: boolean; page?: number; size?: number }
 export function listPayments(merchantId: string, f: PaymentFilter) {
-  const where = ["merchant_id=?"];
-  const p: (string | number)[] = [merchantId];
+  const where = ["merchant_id=?", "test=?"];
+  const p: (string | number)[] = [merchantId, f.test ? 1 : 0];
+  if (f.reference) { where.push("reference=?"); p.push(f.reference); }
   if (f.status === "open") where.push("status IN ('pending','verifying')");
   else if (f.status && f.status !== "all") { where.push("status=?"); p.push(f.status); }
   if (f.source && f.source !== "all") { where.push("source=?"); p.push(f.source); }
@@ -128,7 +138,7 @@ export function listMails(merchantId: string, tab: string) {
 /** Likely owners of a stray credit: same amount first, then nearest in time. */
 export const candidates = (merchantId: string, mail: Mail) =>
   all<Payment>(
-    `SELECT * FROM payments WHERE merchant_id=? AND status!='paid' AND payable=? AND created_at<=? ORDER BY (customer_utr IS ?) DESC, ABS(created_at-?) LIMIT 5`,
+    `SELECT * FROM payments WHERE merchant_id=? AND test=0 AND status!='paid' AND payable=? AND created_at<=? ORDER BY (customer_utr IS ?) DESC, ABS(created_at-?) LIMIT 5`,
     merchantId, mail.amount ?? -1, mail.received_at + 10_000, mail.utr, mail.received_at,
   );
 
@@ -143,7 +153,10 @@ export const listDevices = (merchantId: string) =>
   all<DeviceRow>("SELECT id, merchant_id, label, status, pair_until, model, app_version, sms_ok, battery_ok, received, last_seen_at, last_sms_at, created_at FROM devices WHERE merchant_id=? AND (status='active' OR pair_until>?) ORDER BY created_at", merchantId, Date.now());
 
 export function settingsView(merchantId: string) {
-  const { account_number_enc, ...s } = getSettings(merchantId);
-  return { ...s, has_account: !!account_number_enc, mismatch: accountMismatch(merchantId) };
+  const full = getSettings(merchantId);
+  // The logo goes by URL, not inline: it can be 200 KB.
+  const { account_number_enc, brand_logo, ...s } = full;
+  void account_number_enc; void brand_logo;
+  return { ...s, brand: brandOf(merchantId, full), accounts: accountsView(merchantId), mismatch: accountMismatch(merchantId) };
 }
 export type SettingsView = ReturnType<typeof settingsView>;

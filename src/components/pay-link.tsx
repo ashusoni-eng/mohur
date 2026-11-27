@@ -3,17 +3,18 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/client";
 import { inr } from "@/lib/money";
-import { Folio } from "./public-frame";
+import { Folio, type Brand } from "./public-frame";
 import { useSubmit } from "./live";
 import { Button, Field } from "./ui";
 
-export function PayLink({ link: l }: { link: { slug: string; title: string; description: string; amount: number | null; min: number | null; askName: boolean; askContact: boolean; business: string } }) {
+export function PayLink({ link: l }: { link: { slug: string; title: string; description: string; amount: number | null; min: number | null; askName: boolean; askContact: boolean; business: string; brand?: Brand } }) {
   const router = useRouter();
   const [f, set] = useState({ amount: "", name: "", contact: "" });
   const [gone, setGone] = useState(false);
   const { busy, errors, submit } = useSubmit();
   return (
     <Folio
+      brand={l.brand}
       left={
         <>
           <div>

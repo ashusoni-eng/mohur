@@ -36,7 +36,11 @@ If Mohur saves you fees, **please star the repo**. It is how other businesses fi
 - **On hold, never lost**: payment ID, UTR entry, manual approve and decline, re-read Gmail on demand.
 - **Dashboard**: collections, success rate, fees saved, busiest hours, needs-review queue.
 - **Android app** for bank SMS, with on-phone filtering so OTPs never leave the phone.
-- **Developer API and signed webhooks**, idempotent payment creation.
+- **Several UPI accounts**: spread payments across banks with default-first or random rotation, and daily or monthly limits per account.
+- **Test mode**: `mhr_test_` keys create payments that carry no money, with simulated paid, on-hold, declined and expired outcomes.
+- **Developer API and signed webhooks**: idempotent payment creation, lookup by your own order number, `upi_intent` links, event IDs and per-payment sequence numbers. Full reference at `/docs`.
+- **Safe redirects**: limit `redirect_url` to your own domains.
+- **Your checkout, your brand**: your colour and logo on checkout and payment-link pages.
 - **Multi-account**, with permanent account deletion.
 
 <p align="center">
@@ -104,7 +108,7 @@ Back up `DATA_DIR` (the database and `secret.key`) and keep the process on loopb
 ## Set up
 
 1. Create an account.
-2. Configuration → Bank and UPI: UPI ID, account number, IFSC, bank, branch.
+2. Configuration → UPI accounts: UPI ID, account number, IFSC, bank, branch, and optional daily or monthly limits. Add more accounts to rotate between them.
 3. Configuration → Gmail: the address your bank mails, plus a Google
    [app password](https://myaccount.google.com/apppasswords). Or set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
    for a "Continue with Google" button (Gmail API, `gmail.readonly`, redirect URI `{APP_URL}/api/mail/google/callback`).
@@ -183,7 +187,7 @@ that installs over the old app. Copy a new build to `public/download/mohur.apk`.
 | `src/lib/server/devices.ts`, `mail/sms.ts` | Paired phones and SMS intake |
 | `mobile/` | Android app |
 | `src/lib/server/engine.ts` | Mailbox listeners, clocks, webhook sender |
-| `src/app/api/v1` | REST API (documented in-app under Developers) |
+| `src/app/api/v1` | REST API (reference at `/docs`) |
 | `src/lib/banks.ts` | Trusted bank domains |
 
 ## Limits
@@ -191,6 +195,9 @@ that installs over the old app. Copy a new build to `public/download/mohur.apk`.
 - UPI only, ₹1 to ₹1,00,000 per payment. No refunds: Mohur cannot move money.
 - Bank domains, SMS senders and alert wording vary and change. Test yours in Alert Lab before relying on it.
 - Collect only into your own account. Collecting on behalf of others in India needs an RBI payment aggregator licence.
+- No direct Paytm, PhonePe or Google Pay verification. Their official status APIs work only after you are onboarded as their
+  gateway or enterprise customer (usually with a gateway fee), and only for payments made through their own merchant IDs.
+  Mohur will not use unofficial or scraped endpoints. Your bank's alert stays the free, provider-neutral source of truth.
 
 ## Contributing
 

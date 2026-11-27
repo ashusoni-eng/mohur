@@ -36,18 +36,27 @@ export const openLink = z.object({ amount: z.string().max(20).optional(), name: 
 export const note = z.object({ note: text(200).default("") });
 export const utr = z.object({ utr: z.string().max(40) });
 
-export const bank = z.object({
+const bankFields = {
   upi_id: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9.\-_]{1,254}@[a-z][a-z0-9]{1,63}$/, "Enter a UPI ID like name@okhdfcbank"),
   payee_name: req("the name customers will see", 60), account_holder: text(100).default(""),
   account_number: orEmpty(z.string().trim().regex(/^\d{6,18}$/, "Account number should be 6 to 18 digits")).optional(),
   ifsc: orEmpty(z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "IFSC looks like HDFC0001234")).default(""),
   bank_name: text(80).default(""), branch_name: text(80).default(""), bank_code: text(20).default("any"),
-}).superRefine((b, ctx) => {
-  // The account behind the UPI ID, its IFSC and the bank whose alerts are trusted are one and the same bank.
+};
+// The account behind the UPI ID, its IFSC and the bank whose alerts are trusted are one and the same bank.
+function sameBank(b: { ifsc: string; bank_code: string }, ctx: z.RefinementCtx) {
   const of = b.ifsc ? bankByIfsc(b.ifsc) : undefined;
   const chosen = BANKS.find((x) => x.code === b.bank_code);
   if (of && chosen && of.code !== chosen.code) ctx.addIssue({ code: "custom", path: ["ifsc"], message: `This IFSC is ${of.name}, but the bank chosen is ${chosen.name}. Use the account your UPI ID pays into.` });
-});
+}
+export const bank = z.object(bankFields).superRefine(sameBank);
+const limit = orEmpty(rupees).optional();
+export const upiAccount = z.object({
+  ...bankFields,
+  label: req("a name for this account", 40),
+  daily_limit: limit, monthly_limit: limit,
+  active: z.boolean().default(true), is_default: z.boolean().default(false),
+}).superRefine(sameBank);
 export const extraHeaders = text(200).default("").transform((s, ctx) => {
   const list = s.toUpperCase().split(/[\s,]+/).filter(Boolean);
   for (const h of list) if (!/^[A-Z][A-Z0-9]{2,10}$/.test(h)) { ctx.addIssue({ code: "custom", message: `${h} is not an SMS sender like HDFCBK. Leave out the operator prefix and -S.` }); return z.NEVER; }
@@ -55,7 +64,7 @@ export const extraHeaders = text(200).default("").transform((s, ctx) => {
 });
 export const rules = z.object({
   verify_seconds: z.number().int().min(15, "Use at least 15 seconds").max(600), qr_minutes: z.number().int().min(1).max(60), hold_minutes: z.number().int().min(5, "Use at least 5 minutes").max(1440),
-  timer_start: z.enum(["claim", "qr"]), amount_mode: z.enum(["off", "smart", "strict"]), show_bank: z.boolean(), extra_headers: extraHeaders, support_contact: text(120).default(""),
+  timer_start: z.enum(["claim", "qr"]), rotation: z.enum(["default", "random"]).default("default"), amount_mode: z.enum(["off", "smart", "strict"]), show_bank: z.boolean(), extra_headers: extraHeaders, support_contact: text(120).default(""),
   extra_domains: text(500).default("").transform((s, ctx) => {
     const list = s.toLowerCase().split(/[\s,]+/).filter(Boolean);
     for (const d of list) {
@@ -72,12 +81,30 @@ export const deviceSms = z.object({ items: z.array(z.object({ id: z.string().reg
 
 export const imap = z.object({ email, password: z.string().transform((s) => s.replace(/\s/g, "")).pipe(z.string().min(8, "Enter the 16-letter app password").max(100)) });
 export const lab = z.object({ channel: z.enum(["email", "sms"]).default("email"), from: text(200), subject: text(300), body: z.string().max(20000), authenticated: z.boolean().default(true), inject: z.boolean().default(false) });
-export const webhook = z.object({ url: httpUrl });
-export const apiKey = z.object({ label: req("a label", 60) });
+export const mode = z.enum(["live", "test"]).default("live");
+export const webhook = z.object({ url: httpUrl, mode });
+export const apiKey = z.object({ label: req("a label", 60), mode });
+export const redirectHosts = z.object({ redirect_hosts: text(500).default("").transform((s, ctx) => {
+  const list = s.toLowerCase().split(/[\s,]+/).filter(Boolean).map((h) => h.replace(/^https?:\/\//, "").replace(/\/.*$/, ""));
+  for (const h of list) if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)) { ctx.addIssue({ code: "custom", message: `${h} is not a domain like shop.example.com` }); return z.NEVER; }
+  if (list.length > 10) { ctx.addIssue({ code: "custom", message: "List up to 10 domains" }); return z.NEVER; }
+  return [...new Set(list)].join(", ");
+}) });
+export const simulate = z.object({ outcome: z.enum(["paid", "on_hold", "declined", "expired"], { error: "outcome must be paid, on_hold, declined or expired" }) });
+export const brand = z.object({
+  color: orEmpty(z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a colour like #1b4d3e")).default(""),
+  logo: z.string().max(400_000).nullable().optional(),
+});
 export const passwordChange = z.object({ current: z.string().min(1, "Enter your current password").max(200), next: password });
 export const deleteAccount = z.object({ password: z.string().min(1, "Enter your password").max(200), confirm: z.literal("DELETE", { error: "Type DELETE to confirm" }) });
 export const profile = z.object({ name: req("your name", 80), business: req("your business name", 80) });
 
 const paise = z.number({ error: "amount is required, in paise" }).int("amount must be whole paise").min(MIN_PAISE, "amount must be at least 100 paise").max(MAX_PAISE, "amount must be at most 10000000 paise");
-export const apiPayment = z.object({ amount: paise, title: text(100).optional(), reference: text(100).optional(), customer: z.object({ name: text(80).optional(), contact: text(80).optional() }).optional(), redirect_url: httpUrl.optional() });
+export const apiPayment = z.object({
+  amount: paise, title: text(100).optional(), reference: text(100).optional(),
+  // Shown in the customer's UPI app next to the payment ID, so keep it short.
+  note: z.string().trim().max(50, "note must be at most 50 characters").regex(/^[\p{L}\p{N} .,\-_/#:]*$/u, "note may use letters, digits, spaces and . , - _ / # :").optional(),
+  customer: z.object({ name: text(80).optional(), contact: text(80).optional(), email: z.string().trim().toLowerCase().pipe(z.email("customer.email is not a valid email")).optional(), phone: z.string().trim().regex(/^\+?[0-9 -]{7,16}$/, "customer.phone is not a phone number").optional() }).optional(),
+  redirect_url: httpUrl.optional(), upi_account_id: z.number().int().positive().optional(),
+});
 export const apiLink = z.object({ title: req("title", 100), description: text(500).optional(), amount: paise.optional(), reusable: z.boolean().optional(), redirect_url: httpUrl.optional(), expires_at: z.iso.datetime({ offset: true }).optional() });

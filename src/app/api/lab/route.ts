@@ -3,6 +3,7 @@ import { ingest, ingestSms, screenFor } from "@/lib/server/mail/ingest";
 import { fromAddresses } from "@/lib/server/mail/headers";
 import { parseCredit } from "@/lib/server/mail/parse";
 import { subjectLooksLikeCredit } from "@/lib/server/mail/screen";
+import { bankCodes } from "@/lib/server/accounts";
 import { screenSms } from "@/lib/server/mail/sms";
 import { AppError, getSettings } from "@/lib/server/payments";
 import { env } from "@/lib/server/env";
@@ -17,7 +18,7 @@ export const POST = merchantRoute(async (req, m) => {
       return json(ingestSms(m.id, { messageId: `lab-${randomToken(9)}`, sender: b.from, body: b.body, receivedAt: Date.now() }));
     }
     const st = getSettings(m.id);
-    const screened = screenSms(b.from, b.body, { bankCode: st.bank_code, extraHeaders: st.extra_headers.split(/[\s,]+/).filter(Boolean) });
+    const screened = screenSms(b.from, b.body, { bankCodes: bankCodes(m.id), extraHeaders: st.extra_headers.split(/[\s,]+/).filter(Boolean) });
     return json({ subjectOk: !(screened.verdict === "skip" && screened.reason === "Not a credit alert"), screened, parsed: parseCredit("", b.body, { sms: true }) });
   }
   const from = fromAddresses(b.from);

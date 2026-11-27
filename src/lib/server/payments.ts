@@ -3,12 +3,12 @@ import { all, get, run, tx } from "./db";
 import { newPaymentId } from "./crypto";
 import { publish, topics } from "./bus";
 import { queueWebhook } from "./webhooks";
-import type { Link, Payment, PaymentEvent, PaymentStatus, Settings } from "../types";
+import type { Link, Payment, PaymentEvent, PaymentStatus, Settings, UpiAccount } from "../types";
 import { decimal, inr, MAX_PAISE, MIN_PAISE } from "../money";
 
-export class AppError extends Error {
-  constructor(message: string, public status = 400, public code = "invalid_request") { super(message); }
-}
+import { AppError } from "./errors";
+import { accountForPayment, pickAccount } from "./accounts";
+export { AppError };
 
 const MIN = 60_000;
 
@@ -37,15 +37,15 @@ export function announce(p: Payment, event?: string) {
  * The amount stays reserved until match_until even after settlement, so a late duplicate
  * alert cannot settle the next customer.
  */
-function allocate(merchantId: string, amount: number, mode: Settings["amount_mode"], now: number) {
+function allocate(merchantId: string, amount: number, mode: Settings["amount_mode"], now: number, test: number) {
   if (mode === "off") {
-    const taken = get("SELECT 1 FROM payments WHERE merchant_id = ? AND payable = ? AND match_until > ?", merchantId, amount, now);
+    const taken = get("SELECT 1 FROM payments WHERE merchant_id = ? AND test = ? AND payable = ? AND match_until > ?", merchantId, test, amount, now);
     return { payable: amount, exclusive: taken ? 0 : 1 };
   }
   const taken = new Set(
     all<{ payable: number }>(
-      "SELECT DISTINCT payable FROM payments WHERE merchant_id = ? AND payable BETWEEN ? AND ? AND match_until > ?",
-      merchantId, amount, amount + 99, now,
+      "SELECT DISTINCT payable FROM payments WHERE merchant_id = ? AND test = ? AND payable BETWEEN ? AND ? AND match_until > ?",
+      merchantId, test, amount, amount + 99, now,
     ).map((r) => r.payable),
   );
   if (mode === "smart") {
@@ -60,7 +60,11 @@ function allocate(merchantId: string, amount: number, mode: Settings["amount_mod
 
 export interface NewPayment {
   merchantId: string; source: Payment["source"]; title: string; amount: number; linkId?: string | null;
-  customerName?: string | null; customerContact?: string | null; redirectUrl?: string | null; reference?: string | null; idempotencyKey?: string | null;
+  customerName?: string | null; customerContact?: string | null; customerEmail?: string | null; note?: string | null;
+  redirectUrl?: string | null; reference?: string | null; idempotencyKey?: string | null;
+  /** Created with a test API key: never matched to real money, simulated instead. */
+  test?: boolean;
+  upiAccountId?: number | null;
 }
 
 export function createPayment(n: NewPayment): Payment {
@@ -68,26 +72,31 @@ export function createPayment(n: NewPayment): Payment {
   if (n.amount > MAX_PAISE) throw new AppError(`UPI allows up to ${inr(MAX_PAISE)} per payment`);
   const { p, fresh } = tx(() => {
     if (n.idempotencyKey) {
-      const prior = get<Payment>("SELECT * FROM payments WHERE merchant_id = ? AND idempotency_key = ?", n.merchantId, n.idempotencyKey);
+      const prior = get<Payment>("SELECT * FROM payments WHERE merchant_id = ? AND test = ? AND idempotency_key = ?", n.merchantId, n.test ? 1 : 0, n.idempotencyKey);
       if (prior) {
         if (prior.amount !== n.amount) throw new AppError("This idempotency key was already used with a different amount", 409, "idempotency_conflict");
         return { p: prior, fresh: false };
       }
     }
     const s = getSettings(n.merchantId);
-    if (!s?.upi_id) throw new AppError("Add your UPI ID in Configuration before collecting payments", 409, "not_configured");
+    if (n.redirectUrl && n.source === "api") assertRedirect(s, n.redirectUrl);
+    const test = n.test ? 1 : 0;
+    // Test payments need no real account; they never show a real UPI ID.
+    const account = test ? null : pickAccount(n.merchantId, s, n.amount, n.upiAccountId);
     const now = Date.now();
-    const slot = allocate(n.merchantId, n.amount, s.amount_mode, now);
+    const slot = allocate(n.merchantId, n.amount, s.amount_mode, now, test);
     const qrUntil = now + (s.timer_start === "qr" ? s.verify_seconds * 1000 : s.qr_minutes * MIN);
     let id = newPaymentId();
     while (get("SELECT 1 FROM payments WHERE id = ?", id)) id = newPaymentId();
     run(
       `INSERT INTO payments (id, merchant_id, link_id, source, title, amount, payable, exclusive, status, customer_name, customer_contact,
-        qr_until, match_until, redirect_url, reference, idempotency_key, created_at) VALUES (?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?,?)`,
+        qr_until, match_until, redirect_url, reference, idempotency_key, created_at, upi_account_id, test, customer_email, note)
+        VALUES (?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, n.merchantId, n.linkId ?? null, n.source, n.title, n.amount, slot.payable, slot.exclusive, n.customerName ?? null, n.customerContact ?? null,
       qrUntil, qrUntil + s.hold_minutes * MIN, n.redirectUrl ?? null, n.reference ?? null, n.idempotencyKey ?? null, now,
+      account?.id ?? null, test, n.customerEmail ?? null, n.note ?? null,
     );
-    addEvent(id, "created", `QR issued for ${inr(slot.payable)}`, now);
+    addEvent(id, "created", test ? `Test payment for ${inr(slot.payable)}` : `QR issued for ${inr(slot.payable)} to ${account!.label}`, now);
     return { p: getPayment(id)!, fresh: true };
   });
   if (fresh) {
@@ -179,6 +188,44 @@ export function decline(merchantId: string, id: string, note: string): Payment {
   return p;
 }
 
+/**
+ * Where a customer may be sent after paying. Once the merchant lists their domains, nothing else is
+ * accepted, so a leaked API key cannot turn Mohur's checkout into a redirect to a phishing page.
+ */
+export function assertRedirect(s: Pick<Settings, "redirect_hosts">, url: string) {
+  const hosts = s.redirect_hosts.split(/[\s,]+/).filter(Boolean);
+  if (!hosts.length) return;
+  const host = URL.canParse(url) ? new URL(url).hostname.toLowerCase() : "";
+  if (!hosts.some((h) => host === h || host.endsWith("." + h)))
+    throw new AppError(`redirect_url must be on ${hosts.join(", ")}. Add the domain under Developers to allow it.`, 422, "redirect_not_allowed", "redirect_url");
+}
+
+export type Simulated = "paid" | "on_hold" | "declined" | "expired";
+/** Moves a test payment as if the bank had answered. Real payments can never be moved this way. */
+export function simulate(id: string, outcome: Simulated): Payment {
+  const { p, event } = tx(() => {
+    const cur = getPayment(id);
+    if (!cur || !cur.test) throw new AppError("No test payment with that ID", 404, "not_found");
+    const now = Date.now();
+    if (outcome === "paid") {
+      if (!settleInTx(cur, { method: "manual", note: "Simulated in test mode" })) throw new AppError("This payment is already settled", 409, "already_final");
+      run("UPDATE payments SET utr=COALESCE(utr, ?), payer_vpa=COALESCE(payer_vpa, 'test@upi'), payer_name=COALESCE(payer_name, 'Test Customer') WHERE id=?", "TEST" + String(now).slice(-8), cur.id);
+      return { p: getPayment(cur.id)!, event: undefined };
+    }
+    const from = outcome === "on_hold" ? ["pending", "verifying"] : outcome === "expired" ? ["pending", "verifying", "on_hold"] : ["pending", "verifying", "on_hold", "expired"];
+    const r = run(
+      `UPDATE payments SET status=?, held_at=CASE WHEN ?='on_hold' THEN ? ELSE held_at END, settled_at=CASE WHEN ?='on_hold' THEN NULL ELSE ? END,
+        method=CASE WHEN ?='declined' THEN 'manual' ELSE method END WHERE id=? AND status IN (${from.map(() => "?").join(",")})`,
+      outcome, outcome, now, outcome, now, outcome, cur.id, ...from,
+    );
+    if (r.changes !== 1) throw new AppError(`A ${cur.status.replace("_", " ")} payment cannot become ${outcome.replace("_", " ")}`, 409, "invalid_state");
+    addEvent(cur.id, outcome, `Simulated in test mode: ${outcome.replace("_", " ")}`, now);
+    return { p: getPayment(cur.id)!, event: `payment.${outcome}` };
+  });
+  announce(p, event);
+  return p;
+}
+
 export function owned(merchantId: string, id: string): Payment {
   const p = getPayment(id);
   if (!p || p.merchant_id !== merchantId) throw new AppError("No payment with that ID", 404, "not_found");
@@ -209,17 +256,25 @@ export function sweep(now = Date.now()) {
 }
 
 /** Someone is paying now, or went on hold in the last ten minutes and is still watching the page. */
+/** The UPI request for a real payment, or null for a test one. */
+export function upiFor(p: Payment): { uri: string; vpa: string } | null {
+  if (p.test) return null;
+  const a = accountForPayment(p);
+  return a ? { uri: upiUri(p, a), vpa: a.upi_id } : null;
+}
+
 export const hasLivePayments = (merchantId: string) =>
   !!get("SELECT 1 FROM payments WHERE merchant_id=? AND (status IN ('pending','verifying') OR (status='on_hold' AND held_at>?)) LIMIT 1", merchantId, Date.now() - 10 * MIN);
 
-export function upiUri(p: Payment, s: Settings): string {
+export function upiUri(p: Payment, a: Pick<UpiAccount, "upi_id" | "payee_name" | "account_holder">): string {
   // Encode by hand: URLSearchParams writes spaces as "+", which some UPI apps show literally.
+  // The payment ID stays in the note so a bank that passes the note through identifies the payment.
   const q: [string, string][] = [
-    ["pa", s.upi_id!],
-    ["pn", (s.payee_name || s.account_holder || "Merchant").slice(0, 60)],
+    ["pa", a.upi_id],
+    ["pn", (a.payee_name || a.account_holder || "Merchant").slice(0, 60)],
     ["am", decimal(p.payable)],
     ["cu", "INR"],
-    ["tn", p.id],
+    ["tn", (p.note ? `${p.note} ${p.id}` : p.id).slice(0, 80)],
   ];
   return "upi://pay?" + q.map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%40/g, "@")}`).join("&");
 }

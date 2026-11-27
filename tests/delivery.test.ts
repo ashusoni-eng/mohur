@@ -16,6 +16,7 @@ beforeEach(() => {
   run("DELETE FROM merchants");
   run("INSERT INTO merchants VALUES (?,?,?,?,?,?)", M, "A", "B", "a@x.in", "h", 0);
   run("INSERT INTO settings (merchant_id, upi_id, bank_code) VALUES (?,?,?)", M, "shop@hdfcbank", "hdfc");
+  run("INSERT INTO upi_accounts (merchant_id, label, upi_id, payee_name, account_tail, bank_code, is_default, created_at) VALUES (?,?,?,?,?,?,1,0)", M, "Main", "shop@hdfcbank", "Merchant", null, "hdfc");
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,7 +26,7 @@ it("signs webhooks, retries a failing endpoint, and never sends twice", async ()
   const srv = http.createServer((q, r) => { let b = ""; q.on("data", (d) => (b += d)).on("end", () => { got.push({ sig: String(q.headers["mohur-signature"]), body: b }); r.statusCode = code; r.end(); }); });
   await new Promise<void>((r) => srv.listen(0, r));
   const url = `http://127.0.0.1:${(srv.address() as { port: number }).port}/`;
-  run("INSERT INTO webhooks VALUES ('w',?,?,?,1,0)", M, url, C.encrypt("whsec"));
+  run("INSERT INTO webhooks (id, merchant_id, url, secret_enc, active, created_at) VALUES ('w',?,?,?,1,0)", M, url, C.encrypt("whsec"));
   P.createPayment({ merchantId: M, source: "qr", title: "t", amount: 10000 });
   await Promise.all([W.deliverDue(), W.deliverDue()]);
   expect(got).toHaveLength(1);

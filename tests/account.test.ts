@@ -17,10 +17,10 @@ const C = await import("../src/lib/server/crypto");
 const MARK = "ZEBRAQUARTZ";
 async function account(tag: string) {
   const id = await A.signUp({ name: `${tag} ${MARK}`, business: `${tag} Shop ${MARK}`, email: `${tag}@example.test`, password: "correct-horse-9" });
-  run("UPDATE settings SET upi_id=?, account_number_enc=?, account_tail='4321', bank_code='hdfc' WHERE merchant_id=?", `${tag.toLowerCase()}${MARK.toLowerCase()}@ybl`, C.encrypt("50100000004321"), id);
+  run("INSERT INTO upi_accounts (merchant_id, label, upi_id, payee_name, account_number_enc, account_tail, bank_code, is_default, created_at) VALUES (?,?,?,?,?,?,?,1,0)", id, `Main ${MARK}`, `${tag.toLowerCase()}${MARK.toLowerCase()}@ybl`, `Payee ${MARK}`, C.encrypt("50100000004321"), "4321", "hdfc");
   run("INSERT INTO mail_accounts (merchant_id, kind, email, secret_enc, connected_at) VALUES (?,?,?,?,?)", id, "imap", `${tag}${MARK}@gmail.test`, C.encrypt("app-password"), Date.now());
-  run("INSERT INTO api_keys VALUES (?,?,?,?,?,?,NULL)", `key_${tag}`, id, `key ${MARK}`, "mhr_x", `hash_${tag}`, Date.now());
-  run("INSERT INTO webhooks VALUES (?,?,?,?,1,?)", `wh_${tag}`, id, `https://${MARK}.example.test/hook`, C.encrypt("s"), Date.now());
+  run("INSERT INTO api_keys (id, merchant_id, label, prefix, key_hash, created_at, last_used_at) VALUES (?,?,?,?,?,?,NULL)", `key_${tag}`, id, `key ${MARK}`, "mhr_x", `hash_${tag}`, Date.now());
+  run("INSERT INTO webhooks (id, merchant_id, url, secret_enc, active, created_at) VALUES (?,?,?,?,1,?)", `wh_${tag}`, id, `https://${MARK}.example.test/hook`, C.encrypt("s"), Date.now());
   L.createLink(id, { title: `Link ${MARK}`, amount: 10000 });
   D.startPairing(id, `Phone ${MARK}`);
   const p = P.createPayment({ merchantId: id, source: "qr", title: `Order ${MARK}`, amount: 50000, customerName: `Customer ${MARK}` });
@@ -31,7 +31,7 @@ async function account(tag: string) {
   expect(P.getPayment(p.id)!.status).toBe("paid");
   return id;
 }
-const TABLES = ["merchants:id", "sessions:merchant_id", "settings:merchant_id", "mail_accounts:merchant_id", "links:merchant_id", "payments:merchant_id", "mails:merchant_id", "api_keys:merchant_id", "webhooks:merchant_id", "devices:merchant_id"];
+const TABLES = ["upi_accounts:merchant_id", "merchants:id", "sessions:merchant_id", "settings:merchant_id", "mail_accounts:merchant_id", "links:merchant_id", "payments:merchant_id", "mails:merchant_id", "api_keys:merchant_id", "webhooks:merchant_id", "devices:merchant_id"];
 const count = (id: string) => Object.fromEntries(TABLES.map((t) => { const [tb, col] = t.split(":"); return [tb, get<{ n: number }>(`SELECT COUNT(*) n FROM ${tb} WHERE ${col}=?`, id)!.n]; }));
 
 it("deletes an account and everything in it, leaves others alone, and leaves no trace in the file", async () => {

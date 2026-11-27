@@ -9,3 +9,4 @@ next-env.d.ts
 
 # Server scripts for this deployment. Kept local, not published.
 /deploy/
+/.claude/

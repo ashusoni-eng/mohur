@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FlaskConical, Search } from "lucide-react";
 import type { Payment } from "@/lib/types";
 import { inr } from "@/lib/money";
 import { fmtTime } from "@/lib/client";
@@ -18,15 +18,17 @@ export function PaymentsView({ initialStatus }: { initialStatus: string }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [test, setTest] = useState(false);
   useEffect(() => { const t = setTimeout(() => { setQ(text); setPage(1); }, 250); return () => clearTimeout(t); }, [text]);
-  const qs = new URLSearchParams({ status, q });
+  const qs = new URLSearchParams({ status, q, ...(test ? { test: "1" } : {}) });
   const { data, error } = useApi<{ rows: Payment[]; total: number; paid: number; size: number }>(`/api/payments?${qs}&page=${page}`);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.size)) : 1;
   const filtered = status !== "all" || !!q;
 
   return (
     <>
-      <PageHead title="Payments" sub={data && <span className="num">{data.total} payment{data.total === 1 ? "" : "s"}, {inr(data.paid)} collected</span>}>
+      <PageHead title={test ? "Test payments" : "Payments"} sub={data && <span className="num">{data.total} payment{data.total === 1 ? "" : "s"}, {inr(data.paid)} collected</span>}>
+        <Button variant={test ? "gold" : "quiet"} aria-pressed={test} onClick={() => { setTest(!test); setPage(1); }}><FlaskConical size={16} />{test ? "Showing test data" : "Test data"}</Button>
         <LinkButton variant="quiet" href={`/api/payments/export?${qs}`} download><Download size={16} />Export CSV</LinkButton>
       </PageHead>
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -41,7 +43,7 @@ export function PaymentsView({ initialStatus }: { initialStatus: string }) {
         {!data && !error && <div className="space-y-2 p-5">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div>}
         {data && data.rows.length === 0 && (filtered
           ? <Empty title="No matching payments">Try another status or search.</Empty>
-          : <Empty title="No payments yet" action={<LinkButton href="/app/create">Create your first payment</LinkButton>}>Every QR and link payment will be listed here.</Empty>)}
+          : test ? <Empty title="No test payments">Create one with a test API key. They carry no money and never touch your bank.</Empty> : <Empty title="No payments yet" action={<LinkButton href="/app/create">Create your first payment</LinkButton>}>Every QR and link payment will be listed here.</Empty>)}
         {data && data.rows.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-left">

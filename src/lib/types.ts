@@ -8,6 +8,7 @@ export interface Settings {
   account_number_enc: string | null; account_tail: string | null; ifsc: string | null; bank_name: string | null;
   branch_name: string | null; bank_code: string; extra_domains: string; extra_headers: string; verify_seconds: number; qr_minutes: number;
   hold_minutes: number; timer_start: "claim" | "qr"; amount_mode: "off" | "smart" | "strict"; show_bank: number; support_contact: string;
+  rotation: "default" | "random"; redirect_hosts: string; brand_color: string | null; brand_logo: string | null;
 }
 
 export interface MailAccount {
@@ -28,6 +29,13 @@ export interface Payment {
   held_at: number | null; settled_at: number | null; method: "email" | "sms" | "utr" | "manual" | null; utr: string | null;
   payer_vpa: string | null; payer_name: string | null; mail_id: number | null; decision_note: string | null;
   redirect_url: string | null; reference: string | null; idempotency_key: string | null; created_at: number;
+  upi_account_id: number | null; test: number; event_seq: number; customer_email: string | null; note: string | null;
+}
+
+export interface UpiAccount {
+  id: number; merchant_id: string; label: string; upi_id: string; payee_name: string; account_holder: string; account_number_enc: string | null;
+  account_tail: string | null; ifsc: string; bank_name: string; branch_name: string; bank_code: string; daily_limit: number | null;
+  monthly_limit: number | null; active: number; is_default: number; created_at: number;
 }
 
 export interface Device {

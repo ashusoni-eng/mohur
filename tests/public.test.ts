@@ -21,6 +21,7 @@ beforeEach(() => {
   run("DELETE FROM merchants");
   run("INSERT INTO merchants VALUES ('m','A','B','a@x.in','h',0)");
   run("INSERT INTO settings (merchant_id, upi_id) VALUES ('m','shop@ybl')");
+  run("INSERT INTO upi_accounts (merchant_id, label, upi_id, payee_name, account_tail, bank_code, is_default, created_at) VALUES (?,?,?,?,?,?,1,0)", "m", "Main", "shop@ybl", "Merchant", null, "any");
 });
 
 describe("guessing payment IDs", () => {

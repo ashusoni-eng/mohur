@@ -36,7 +36,7 @@ describe("SMS parsing", () => {
 });
 
 describe("SMS senders", () => {
-  const p = { bankCode: "hdfc", extraHeaders: ["MYBANK"] };
+  const p = { bankCodes: ["hdfc"], extraHeaders: ["MYBANK"] };
   const body = ok[0][1];
   it("splits a registered header", () => {
     expect(parseHeader("VM-HDFCBK-S")).toEqual({ header: "HDFCBK", kind: "S" });

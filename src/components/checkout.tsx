@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Ban, Check, ChevronDown, Clock, Hourglass, Printer, WifiOff } from "lucide-react";
+import { Ban, Check, ChevronDown, Clock, FlaskConical, Hourglass, Printer, WifiOff } from "lucide-react";
 import type { CheckoutView } from "@/lib/server/views";
 import { fmtFull } from "@/lib/client";
 import { inr } from "@/lib/money";
@@ -18,6 +18,7 @@ export function Checkout({ initial }: { initial: CheckoutView }) {
   const extra = v.payable - v.amount;
   return (
     <Folio
+      brand={v.brand}
       left={
         <>
           <div>
@@ -33,6 +34,7 @@ export function Checkout({ initial }: { initial: CheckoutView }) {
       }
       right={
         <div aria-live="polite">
+          {v.test && <TestBar v={v} act={act} busy={busy} />}
           {offline && <p className="mb-4 flex items-center gap-2 rounded-[9px] bg-amber-wash px-4 py-2.5 text-[14px] text-amber"><WifiOff size={16} />You are offline. We will update when you reconnect.</p>}
           {v.status === "pending" && <Scan v={v} now={now} busy={busy} onClaim={() => act("claim")} />}
           {v.status === "verifying" && <Verifying v={v} now={now} />}
@@ -54,8 +56,9 @@ function Scan({ v, now, busy, onClaim }: { v: CheckoutView; now: number; busy: b
       <div className="relative grid aspect-square w-full max-w-[340px] place-items-center">
         <Reeding lit={Math.ceil((left / Math.max(1, v.qrUntil - v.createdAt)) * 60)} />
         {v.upi && <Qr {...v.upi.qr} className="w-[63%]" />}
+        {v.test && <div className="grid aspect-square w-[63%] place-items-center rounded-[12px] border-2 border-dashed border-amber/60 bg-amber-wash p-6 text-center text-[14px] font-semibold text-amber">Test payment<br />No QR: nothing to pay</div>}
       </div>
-      <p className="mt-4 text-center"><b className="font-semibold">Scan with any UPI app</b><span className="num block text-[14px] text-ink-3">Code closes in {clock(left)}</span></p>
+      <p className="mt-4 text-center"><b className="font-semibold">{v.test ? "Use the test buttons above" : "Scan with any UPI app"}</b><span className="num block text-[14px] text-ink-3">Code closes in {clock(left)}</span></p>
       {v.upi && <a href={v.upi.uri} className="mt-5 hidden h-[52px] w-full items-center justify-center rounded-[9px] bg-emerald font-semibold text-white pointer-coarse:inline-flex">Open a UPI app</a>}
       {v.upi && <p className="mt-4 flex max-w-full items-center gap-1 text-[14px] text-ink-3"><span className="truncate">{v.upi.vpa}</span><CopyButton text={v.upi.vpa} /></p>}
       <Button variant="gold" size="lg" busy={busy} className="mt-4 w-full" onClick={onClaim}>I have paid</Button>
@@ -67,6 +70,22 @@ function Scan({ v, now, busy, onClaim }: { v: CheckoutView; now: number; busy: b
             {([["Account name", v.bank.holder], ["Account number", v.bank.number], ["IFSC", v.bank.ifsc], ["Bank", v.bank.bank]] as const).filter(([, x]) => x).map(([k, x]) => <div key={k} className="flex items-center justify-between gap-4 py-1"><dt className="text-ink-3">{k}</dt><dd className="flex items-center gap-1 text-right font-medium">{x}<CopyButton text={x!} label="" className="!px-1" /></dd></div>)}
           </dl>
         </details>
+      )}
+    </div>
+  );
+}
+
+/** Test payments carry no money, so the customer side can move them by hand. */
+function TestBar({ v, act, busy }: { v: CheckoutView; act: (w: "simulate", d?: unknown) => Promise<boolean>; busy: boolean }) {
+  const can = (s: string) => (s === "paid" || s === "declined" ? !["paid", "declined"].includes(v.status) : s === "on_hold" ? ["pending", "verifying"].includes(v.status) : ["pending", "verifying", "on_hold"].includes(v.status));
+  const opts = (["paid", "on_hold", "declined", "expired"] as const).filter(can);
+  return (
+    <div className="mb-5 rounded-[12px] border border-amber/40 bg-amber-wash p-4 text-amber">
+      <p className="flex items-center gap-2 font-semibold"><FlaskConical size={17} />Test mode. No real money moves.</p>
+      {opts.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {opts.map((o) => <Button key={o} size="sm" variant="ghost" busy={busy} onClick={() => act("simulate", { outcome: o })}>Simulate {o.replace("_", " ")}</Button>)}
+        </div>
       )}
     </div>
   );
@@ -87,7 +106,7 @@ function Verifying({ v, now }: { v: CheckoutView; now: number }) {
   );
 }
 
-function Hold({ v, act, busy, expired }: { v: CheckoutView; act: (w: "claim" | "utr", d?: unknown) => Promise<boolean>; busy: boolean; expired?: boolean }) {
+function Hold({ v, act, busy, expired }: { v: CheckoutView; act: (w: "claim" | "utr" | "simulate", d?: unknown) => Promise<boolean>; busy: boolean; expired?: boolean }) {
   const [utr, setUtr] = useState("");
   return (
     <div>

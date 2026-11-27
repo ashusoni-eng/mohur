@@ -5,6 +5,7 @@ import { publish, topics } from "./bus";
 import { env } from "./env";
 import { ingestSms } from "./mail/ingest";
 import { headersFor } from "./mail/sms";
+import { bankCodes, listAccounts } from "./accounts";
 import type { Device } from "../types";
 import { z } from "zod";
 import * as S from "../schemas";
@@ -30,7 +31,7 @@ export function hello(d: Device, b: z.infer<typeof S.deviceHello>) {
   const s = getSettings(d.merchant_id);
   return {
     now, business: get<{ business: string }>("SELECT business FROM merchants WHERE id=?", d.merchant_id)!.business,
-    bank: s.bank_name || null, headers: headersFor(s.bank_code, s.extra_headers.split(/[\s,]+/).filter(Boolean)),
+    bank: listAccounts(d.merchant_id, true).map((a) => a.bank_name).filter(Boolean).join(", ") || null, headers: headersFor(bankCodes(d.merchant_id), s.extra_headers.split(/[\s,]+/).filter(Boolean)),
   };
 }
 

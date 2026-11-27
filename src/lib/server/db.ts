@@ -96,6 +96,34 @@ const migrations: string[] = [
   CREATE INDEX dev_m ON devices(merchant_id);
   ALTER TABLE settings ADD COLUMN extra_headers TEXT NOT NULL DEFAULT '';
   `,
+  `
+  CREATE TABLE upi_accounts (
+    id INTEGER PRIMARY KEY, merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    label TEXT NOT NULL, upi_id TEXT NOT NULL, payee_name TEXT NOT NULL, account_holder TEXT NOT NULL DEFAULT '',
+    account_number_enc TEXT, account_tail TEXT, ifsc TEXT NOT NULL DEFAULT '', bank_name TEXT NOT NULL DEFAULT '',
+    branch_name TEXT NOT NULL DEFAULT '', bank_code TEXT NOT NULL DEFAULT 'any',
+    daily_limit INTEGER, monthly_limit INTEGER, active INTEGER NOT NULL DEFAULT 1, is_default INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX upi_m ON upi_accounts(merchant_id);
+  INSERT INTO upi_accounts (merchant_id, label, upi_id, payee_name, account_holder, account_number_enc, account_tail, ifsc, bank_name, branch_name, bank_code, is_default, created_at)
+    SELECT merchant_id, 'Main account', upi_id, COALESCE(NULLIF(payee_name, ''), 'Merchant'), COALESCE(account_holder, ''), account_number_enc, account_tail,
+      COALESCE(ifsc, ''), COALESCE(bank_name, ''), COALESCE(branch_name, ''), bank_code, 1, CAST(strftime('%s','now') AS INTEGER) * 1000
+    FROM settings WHERE upi_id IS NOT NULL AND upi_id != '';
+  ALTER TABLE settings ADD COLUMN rotation TEXT NOT NULL DEFAULT 'default';
+  ALTER TABLE settings ADD COLUMN redirect_hosts TEXT NOT NULL DEFAULT '';
+  ALTER TABLE settings ADD COLUMN brand_color TEXT;
+  ALTER TABLE settings ADD COLUMN brand_logo TEXT;
+  ALTER TABLE payments ADD COLUMN upi_account_id INTEGER;
+  ALTER TABLE payments ADD COLUMN test INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payments ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payments ADD COLUMN customer_email TEXT;
+  ALTER TABLE payments ADD COLUMN note TEXT;
+  CREATE INDEX pay_ref ON payments(merchant_id, reference);
+  ALTER TABLE api_keys ADD COLUMN mode TEXT NOT NULL DEFAULT 'live';
+  ALTER TABLE webhooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'live';
+  ALTER TABLE deliveries ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 function open() {

@@ -1,3 +1,4 @@
+import { brandOf } from "@/lib/server/views";
 import type { Metadata } from "next";
 import { get, run } from "@/lib/server/db";
 import { linkState } from "@/lib/server/payments";
@@ -22,5 +23,5 @@ export default async function Page({ params }: P) {
   if (state !== "open")
     return <PublicFrame><Notice title={state === "used" ? "This has already been paid" : state === "expired" ? "This link has expired" : "This link is paused"}>{state === "used" ? "It accepted a single payment." : `Ask ${l.business} for a new link.`}{l.contact && <> You can reach them at {l.contact}.</>}</Notice></PublicFrame>;
   run("UPDATE links SET views=views+1 WHERE id=?", l.id);
-  return <PublicFrame><PayLink link={{ slug: l.slug, title: l.title, description: l.description, amount: l.amount, min: l.min_amount, askName: !!l.ask_name, askContact: !!l.ask_contact, business: l.business }} /></PublicFrame>;
+  return <PublicFrame><PayLink link={{ slug: l.slug, title: l.title, description: l.description, amount: l.amount, min: l.min_amount, askName: !!l.ask_name, askContact: !!l.ask_contact, business: l.business, brand: brandOf(l.merchant_id) }} /></PublicFrame>;
 }

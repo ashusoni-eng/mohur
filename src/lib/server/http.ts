@@ -12,7 +12,7 @@ export const json = (data: unknown, status = 200) => NextResponse.json(data, { s
 type Ctx<P> = { params: Promise<P> };
 
 function fail(e: unknown) {
-  if (e instanceof AppError) return json({ error: e.message, code: e.code }, e.status);
+  if (e instanceof AppError) return json({ error: e.message, code: e.code, ...(e.field ? { field: e.field } : {}) }, e.status);
   if (e instanceof z.ZodError) return json({ error: e.issues[0]?.message ?? "Check the form and try again", code: "invalid_request", field: e.issues[0]?.path.join(".") }, 400);
   if (e instanceof SyntaxError) return json({ error: "Body is not valid JSON", code: "invalid_request" }, 400);
   console.error("[mohur]", e);
@@ -47,15 +47,18 @@ export function publicRoute<P = Record<string, never>>(fn: (req: Request, params
   };
 }
 
-export function apiRoute<P = Record<string, never>>(fn: (req: Request, merchantId: string, params: P) => Promise<Response> | Response) {
+/** Which side of the merchant's account a key works on. Test keys only ever see test payments. */
+export interface ApiKey { test: boolean }
+
+export function apiRoute<P = Record<string, never>>(fn: (req: Request, merchantId: string, params: P, key: ApiKey) => Promise<Response> | Response) {
   return async (req: Request, ctx: Ctx<P>) => {
     try {
       const key = /^Bearer (mhr_\S+)$/.exec(req.headers.get("authorization") ?? "")?.[1];
-      const row = key && get<{ id: string; merchant_id: string }>("SELECT id, merchant_id FROM api_keys WHERE key_hash=?", sha256(key));
+      const row = key && get<{ id: string; merchant_id: string; mode: string }>("SELECT id, merchant_id, mode FROM api_keys WHERE key_hash=?", sha256(key));
       if (!row) throw new AppError("Missing or unknown API key", 401, "unauthorized");
       limit(`api:${row.id}`, 120, 60_000);
       run("UPDATE api_keys SET last_used_at=? WHERE id=?", Date.now(), row.id);
-      return await fn(req, row.merchant_id, await ctx.params);
+      return await fn(req, row.merchant_id, await ctx.params, { test: row.mode === "test" });
     } catch (e) { return fail(e); }
   };
 }

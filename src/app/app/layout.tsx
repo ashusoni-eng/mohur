@@ -14,7 +14,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <LiveProvider
       initial={{
         v: 0,
-        hold: n("SELECT COUNT(*) n FROM payments WHERE merchant_id=? AND status='on_hold'"),
+        hold: n("SELECT COUNT(*) n FROM payments WHERE merchant_id=? AND test=0 AND status='on_hold'"),
         strays: n("SELECT COUNT(*) n FROM mails WHERE merchant_id=? AND outcome IN ('unmatched','ambiguous')"),
         mail: mailStatus(m.id),
         devices: listDevices(m.id),

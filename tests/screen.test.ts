@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { screen, subjectLooksLikeCredit } from "../src/lib/server/mail/screen";
 import { parseHeaderBlock } from "../src/lib/server/mail/headers";
 
-const policy = { bankCode: "hdfc", extraDomains: [], authServId: "mx.google.com" };
+const policy = { bankCodes: ["hdfc"], extraDomains: [], authServId: "mx.google.com" };
 const PASS = "mx.google.com; dkim=pass header.i=@hdfcbank.net header.s=x header.b=abc; spf=pass (google.com: domain of b@hdfcbank.net designates 1.2.3.4 as permitted sender) smtp.mailfrom=b@hdfcbank.net; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=hdfcbank.net";
 const h = (o: Partial<Parameters<typeof screen>[0]> = {}) => ({ from: ["alerts@hdfcbank.net"], subject: "View: Account update for your HDFC Bank A/c", authResults: [PASS], ...o });
 

@@ -17,6 +17,7 @@ beforeEach(() => {
   run("DELETE FROM merchants");
   run("INSERT INTO merchants VALUES (?,?,?,?,?,?)", M, "A", "Terra", "a@x.in", "h", 0);
   run("INSERT INTO settings (merchant_id, upi_id, account_tail, bank_code) VALUES (?,?,?,?)", M, "shop@hdfcbank", "4321", "hdfc");
+  run("INSERT INTO upi_accounts (merchant_id, label, upi_id, payee_name, account_tail, bank_code, is_default, created_at) VALUES (?,?,?,?,?,?,1,0)", M, "Main", "shop@hdfcbank", "Merchant", "4321", "hdfc");
 });
 const pair = () => Object.fromEntries(new URL(D.startPairing(M, "Counter").link).searchParams) as { s: string; d: string; k: string };
 const call = (route: typeof helloRoute, path: string, c: { d: string; k: string }, data: unknown, o: { time?: number; tamper?: string } = {}) => {

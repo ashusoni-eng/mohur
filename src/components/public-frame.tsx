@@ -26,10 +26,16 @@ export function Notice({ title, children }: { title: string; children: ReactNode
 }
 
 /** Two-part card: engraved emerald on the left, marble on the right. Stacks on phones. */
-export function Folio({ left, right }: { left: ReactNode; right: ReactNode }) {
+export type Brand = { color: string | null; logo: string | null };
+
+export function Folio({ left, right, brand }: { left: ReactNode; right: ReactNode; brand?: Brand }) {
   return (
     <div className="rise grid w-full max-w-[920px] overflow-hidden rounded-[18px] shadow-[0_30px_80px_-20px_rgb(0_0_0/.55)] md:grid-cols-[1fr_1.15fr]">
-      <section className="relative flex flex-col justify-between gap-6 border-b border-brass-mid/40 bg-emerald p-7 text-white md:border-b-0 md:border-r md:p-10">{left}</section>
+      <section className="relative flex flex-col justify-between gap-6 border-b border-brass-mid/40 bg-emerald p-7 text-white md:border-b-0 md:border-r md:p-10" style={brand?.color ? { background: brand.color } : undefined}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, already sized */}
+        {brand?.logo && <img src={brand.logo} alt="" className="max-h-12 max-w-[180px] self-start rounded-[6px] object-contain" />}
+        {left}
+      </section>
       <section className="bg-paper p-6 sm:p-10">{right}</section>
     </div>
   );

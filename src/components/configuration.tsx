@@ -1,20 +1,23 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { CircleCheck, CircleX, FlaskConical, Landmark, Mail, ShieldCheck, SlidersHorizontal, Smartphone, TriangleAlert, User } from "lucide-react";
+import { CircleCheck, CircleX, FlaskConical, Landmark, Palette, Mail, ShieldCheck, SlidersHorizontal, Smartphone, TriangleAlert, User } from "lucide-react";
 import type { SettingsView } from "@/lib/server/views";
 import { BANKS, bankByIfsc } from "@/lib/banks";
 import { api, ago, fmtDay, message } from "@/lib/client";
 import { inr } from "@/lib/money";
 import { useLive, useSubmit, type MailInfo } from "./live";
 import { PhonePanel } from "./phone-panel";
+import { UpiAccounts } from "./upi-accounts";
+import { BrandForm } from "./brand-form";
 import { Button, Dialog, Field, LinkButton, PageHead, Segmented, Toggle, useToast } from "./ui";
 
 const TABS = [
-  { id: "bank", label: "Bank and UPI", Icon: Landmark },
+  { id: "bank", label: "UPI accounts", Icon: Landmark },
   { id: "gmail", label: "Gmail", Icon: Mail },
   { id: "phone", label: "Phone (SMS)", Icon: Smartphone },
   { id: "rules", label: "Payment rules", Icon: SlidersHorizontal },
+  { id: "brand", label: "Checkout look", Icon: Palette },
   { id: "lab", label: "Alert Lab", Icon: FlaskConical },
   { id: "account", label: "Account", Icon: User },
 ] as const;
@@ -23,6 +26,7 @@ type Tab = (typeof TABS)[number]["id"];
 export function Configuration({ settings, me, google, simulator, welcome, error, connected }: { welcome: boolean; error: string | null; connected: boolean; settings: SettingsView; me: { name: string; business: string; email: string }; google: boolean; simulator: boolean }) {
   const [tab, setTab] = useState<Tab>(error || connected ? "gmail" : "bank");
   const [s, setS] = useState(settings);
+  const codes = [...new Set(s.accounts.map((a) => a.bank_code))];
   return (
     <>
       <PageHead title="Configuration" sub={welcome ? `Welcome, ${me.name.split(" ")[0]}. Add your bank and UPI details, then connect Gmail, and you can start collecting.` : undefined} />
@@ -33,11 +37,12 @@ export function Configuration({ settings, me, google, simulator, welcome, error,
           ))}
         </div>
         <div role="tabpanel" id="panel" aria-labelledby={`tab-${tab}`} className="min-w-0 max-w-[780px] space-y-5">
-          {tab === "bank" && <BankForm s={s} saved={setS} next={() => setTab("gmail")} />}
-          {tab === "gmail" && <Gmail google={google} note={error} bank={s.bank_code} />}
-          {tab === "phone" && <PhonePanel bank={s.bank_code} />}
+          {tab === "bank" && <UpiAccounts s={s} saved={(r) => setS({ ...s, accounts: r.rows, mismatch: r.mismatch })} next={() => setTab("gmail")} />}
+          {tab === "gmail" && <Gmail google={google} note={error} banks={codes} />}
+          {tab === "phone" && <PhonePanel banks={codes} />}
           {tab === "rules" && <Rules s={s} saved={setS} />}
-          {tab === "lab" && <Lab simulator={simulator} bank={s.bank_code} />}
+          {tab === "brand" && <BrandForm s={s} saved={setS} business={me.business} />}
+          {tab === "lab" && <Lab simulator={simulator} bank={codes[0] ?? "any"} />}
           {tab === "account" && <Account me={me} />}
         </div>
       </div>
@@ -48,66 +53,15 @@ export function Configuration({ settings, me, google, simulator, welcome, error,
 const Box = ({ title, sub, children }: { title: string; sub?: ReactNode; children: ReactNode }) => <section className="card p-6 sm:p-8"><h2 className="font-display text-[22px] leading-tight">{title}</h2>{sub && <p className="mt-1 max-w-[64ch] text-ink-3">{sub}</p>}<div className="mt-6">{children}</div></section>;
 const FormError = ({ e }: { e?: string }) => (e ? <p role="alert" className="rounded-[9px] bg-carnelian-wash px-4 py-2.5 text-carnelian">{e}</p> : null);
 
-function BankForm({ s, saved, next }: { s: SettingsView; saved: (s: SettingsView) => void; next: () => void }) {
-  const [f, set] = useState({ upi_id: s.upi_id ?? "", payee_name: s.payee_name ?? "", account_holder: s.account_holder ?? "", account_number: "", ifsc: s.ifsc ?? "", bank_name: s.bank_name ?? "", branch_name: s.branch_name ?? "", bank_code: s.bank_code });
-  const { busy, errors, submit } = useSubmit();
-  const toast = useToast();
-  const live = useLive();
-  const up = (k: keyof typeof f) => (e: { target: { value: string } }) => set({ ...f, [k]: e.target.value });
-  const text = (k: keyof typeof f, label: string, o: { hint?: ReactNode; optional?: boolean; ph?: string; cls?: string } = {}) => (
-    <Field label={label} hint={o.hint} optional={o.optional} error={errors[k]}>{(a) => <input {...a} className={`field ${o.cls ?? ""}`} placeholder={o.ph} autoComplete="off" spellCheck={false} value={f[k]} onChange={up(k)} />}</Field>
-  );
-  return (
-    <form
-      noValidate className="space-y-5"
-      onSubmit={(e) => { e.preventDefault(); void submit(async () => { const r = await api<SettingsView & { confirmed: number }>("/api/settings/bank", "PUT", f); saved(r); set((x) => ({ ...x, account_number: "" })); toast(r.confirmed ? `Saved. ${r.confirmed} waiting payment${r.confirmed === 1 ? "" : "s"} confirmed.` : "Bank and UPI details saved"); if (!live?.mail) next(); }); }}
-    >
-      {s.mismatch && (
-        <div role="alert" className="flex gap-3.5 rounded-[14px] bg-amber-wash p-5 text-amber">
-          <TriangleAlert size={20} className="mt-0.5 shrink-0" />
-          <div><p className="font-semibold">Money is arriving in a different account</p><p className="mt-1 text-ink-2">Your bank says it credited the account ending <b className="num">{s.mismatch.tail}</b>, but the account saved here ends <b className="num">{s.mismatch.saved}</b>. If {s.mismatch.tail} is the account your UPI ID pays into, enter its number and IFSC below. If it is not, the UPI ID is the one to change.</p></div>
-        </div>
-      )}
-      <Box title="UPI" sub="Every QR code pays this UPI ID directly. Mohur never holds your money.">
-        <div className="grid gap-5 sm:grid-cols-2">
-          {text("upi_id", "UPI ID", { ph: "yourshop@okhdfcbank" })}
-          {text("payee_name", "Name customers see")}
-        </div>
-      </Box>
-      <Box title="Bank account" sub="The account behind that UPI ID. The last four digits are checked against each alert, so credits to your other accounts are ignored.">
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Bank" hint="The bank your UPI ID pays into. Only its alerts are trusted.">
-            {(a) => (
-              <select {...a} className="field" value={f.bank_code} onChange={(e) => { const b = BANKS.find((x) => x.code === e.target.value); set({ ...f, bank_code: e.target.value, bank_name: b?.name ?? f.bank_name }); }}>
-                <option value="any">Any supported bank</option>
-                {BANKS.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
-              </select>
-            )}
-          </Field>
-          <Field label="IFSC" optional error={errors.ifsc}>
-            {(a) => <input {...a} className="field font-mono uppercase" maxLength={11} autoComplete="off" placeholder="HDFC0001234" value={f.ifsc} onChange={(e) => { const ifsc = e.target.value.toUpperCase(); const b = ifsc.length >= 4 ? bankByIfsc(ifsc) : undefined; set({ ...f, ifsc, ...(b ? { bank_code: b.code, bank_name: b.name } : {}) }); }} />}
-          </Field>
-          {text("account_number", "Account number", { cls: "num", ph: s.has_account ? `•••• ${s.account_tail}` : "", optional: true, hint: s.has_account ? "Saved and encrypted. Leave blank to keep it." : "Stored encrypted." })}
-          {text("account_holder", "Account holder", { optional: true })}
-          {text("bank_name", "Bank name", { optional: true })}
-          {text("branch_name", "Branch name", { optional: true })}
-        </div>
-      </Box>
-      <FormError e={errors.form} />
-      <Button type="submit" size="lg" busy={busy}>Save bank details</Button>
-    </form>
-  );
-}
-
 const STATE: Record<MailInfo["status"], [string, string]> = { live: ["Listening", "bg-jade"], connecting: ["Connecting", "bg-[#b8780f] breathe"], retrying: ["Reconnecting", "bg-[#b8780f] breathe"], error: ["Needs attention", "bg-carnelian"] };
 
-function Gmail({ google, note, bank }: { google: boolean; note: string | null; bank: string }) {
+function Gmail({ google, note, banks }: { google: boolean; note: string | null; banks: string[] }) {
   const mail = useLive()?.mail ?? null;
   const [f, set] = useState({ email: "", password: "" });
   const [off, setOff] = useState(false);
   const { busy, errors, submit } = useSubmit();
   const toast = useToast();
-  const names = bank === "any" ? "any supported bank" : BANKS.find((b) => b.code === bank)?.name;
+  const names = !banks.length || banks.includes("any") ? "any supported bank" : banks.map((c) => BANKS.find((b) => b.code === c)?.name ?? c).join(", ");
   return (
     <>
       {note && <FormError e={note} />}
@@ -177,7 +131,7 @@ function Choice<T extends string>({ name, value, onChange, options }: { name: st
 }
 
 function Rules({ s, saved }: { s: SettingsView; saved: (s: SettingsView) => void }) {
-  const [f, set] = useState({ verify_seconds: String(s.verify_seconds), qr_minutes: String(s.qr_minutes), hold_minutes: String(s.hold_minutes), timer_start: s.timer_start, amount_mode: s.amount_mode, show_bank: !!s.show_bank, support_contact: s.support_contact, extra_domains: s.extra_domains, extra_headers: s.extra_headers });
+  const [f, set] = useState({ rotation: s.rotation, verify_seconds: String(s.verify_seconds), qr_minutes: String(s.qr_minutes), hold_minutes: String(s.hold_minutes), timer_start: s.timer_start, amount_mode: s.amount_mode, show_bank: !!s.show_bank, support_contact: s.support_contact, extra_domains: s.extra_domains, extra_headers: s.extra_headers });
   const { busy, errors, submit } = useSubmit();
   const toast = useToast();
   const num = (k: "verify_seconds" | "qr_minutes" | "hold_minutes", label: string, unit: string, hint: string) => (
@@ -196,6 +150,14 @@ function Rules({ s, saved }: { s: SettingsView; saved: (s: SettingsView) => void
           {num("hold_minutes", "Keep matching for", "minutes", "A late mail in this time still settles it.")}
         </div>
       </Box>
+      {s.accounts.length > 1 && (
+        <Box title="Several UPI accounts" sub="Which account a new payment goes to. Accounts that would pass their daily or monthly limit are skipped.">
+          <Choice name="rotation" value={f.rotation} onChange={(rotation) => set({ ...f, rotation })} options={[
+            { value: "default", title: "Default account first", text: "Use the default until it reaches a limit, then the next account." },
+            { value: "random", title: "Spread across accounts", text: "Pick at random among accounts with room left." },
+          ]} />
+        </Box>
+      )}
       <Box title="Telling payments apart" sub="Bank mails rarely say who a payment was for, so Mohur identifies each one by its exact amount.">
         <Choice name="mode" value={f.amount_mode} onChange={(amount_mode) => set({ ...f, amount_mode })} options={[
           { value: "smart", title: "Add paise only when needed", text: "The first customer pays ₹500. If someone else is paying ₹500 at the same time, they are asked for ₹500.01." },
@@ -206,7 +168,7 @@ function Rules({ s, saved }: { s: SettingsView; saved: (s: SettingsView) => void
       <Box title="Checkout">
         <div className="space-y-6">
           <Field label="Support contact" optional hint="Shown to customers whose payment is on hold." error={errors.support_contact}>{(a) => <input {...a} className="field" placeholder="Phone, WhatsApp or email" value={f.support_contact} onChange={(e) => set({ ...f, support_contact: e.target.value })} />}</Field>
-          <Toggle label="Offer bank transfer" hint={s.has_account ? "Shows your full account number and IFSC on checkout." : "Add your account number first."} checked={f.show_bank} onChange={(show_bank) => set({ ...f, show_bank: show_bank && s.has_account })} />
+          <Toggle label="Offer bank transfer" hint={s.accounts.some((a) => a.has_account) ? "Shows the full account number and IFSC of the account a payment goes to." : "Add an account number first."} checked={f.show_bank} onChange={(show_bank) => set({ ...f, show_bank: show_bank && s.accounts.some((a) => a.has_account) })} />
         </div>
       </Box>
       <Box title="Extra bank domains" sub="Only needed if your bank writes from a domain Mohur does not know. Each one is still checked by DKIM or DMARC.">

@@ -24,7 +24,11 @@ const mail = (amount: string, o: { utr?: string; at?: number; note?: string; fro
   );
 const make = (amount = 50000) => P.createPayment({ merchantId: M, source: "qr", title: "t", amount });
 const st = (id: string) => P.getPayment(id)!.status;
-const set = (k: string, v: string | number) => run(`UPDATE settings SET ${k}=? WHERE merchant_id=?`, v, M);
+// Account fields live on the UPI account, the rest on settings.
+const set = (k: string, v: string | number) =>
+  ["upi_id", "account_tail", "bank_code"].includes(k)
+    ? k === "upi_id" && v === "" ? run("DELETE FROM upi_accounts WHERE merchant_id=?", M) : run(`UPDATE upi_accounts SET ${k}=? WHERE merchant_id=?`, v, M)
+    : run(`UPDATE settings SET ${k}=? WHERE merchant_id=?`, v, M);
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -33,6 +37,7 @@ beforeEach(() => {
   for (const id of [M, "mer_2"]) {
     run("INSERT INTO merchants VALUES (?,?,?,?,?,?)", id, "A", "B", `${id}@x.in`, "h", 0);
     run("INSERT INTO settings (merchant_id, upi_id, account_tail, bank_code) VALUES (?,?,?,?)", id, "shop@hdfcbank", "4321", "hdfc");
+    run("INSERT INTO upi_accounts (merchant_id, label, upi_id, payee_name, account_tail, bank_code, is_default, created_at) VALUES (?,?,?,?,?,?,1,0)", id, "Main", "shop@hdfcbank", "Merchant", "4321", "hdfc");
   }
 });
 const tick = (s: number) => { vi.setSystemTime(Date.now() + s * 1000); P.sweep(); };
@@ -113,7 +118,7 @@ describe("wrong account saved", () => {
     const p = make();
     expect(await mail("500.00", { tail: "2222" })).toBe("unmatched");
     expect(st(p.id)).toBe("pending");
-    expect(get<{ reason: string }>("SELECT reason FROM mails")!.reason).toBe("Paid into the account ending 2222, but Configuration has 1111");
+    expect(get<{ reason: string }>("SELECT reason FROM mails")!.reason).toBe("Paid into the account ending 2222, but your UPI accounts end 1111");
     expect(I.accountMismatch(M)).toMatchObject({ tail: "2222", saved: "1111" });
     expect(I.recheckAccount(M)).toBe(0);
     expect(st(p.id)).toBe("pending");
@@ -141,7 +146,7 @@ describe("wrong account saved", () => {
     const body = vi.fn();
     const go = (auth: string) => I.ingest(M, { messageId: `<${++n}>`, source: "t", receivedAt: Date.now(), headers: { from: ["alerts@hdfcbank.net"], subject: "Transaction alert", authResults: [auth] } }, body);
     expect(await go("mx.google.com; dmarc=pass header.from=hdfcbank.net")).toBe("ignored");
-    expect(get<{ reason: string }>("SELECT reason FROM mails")!.reason).toBe("From HDFC Bank, but Configuration is set to Kotak Mahindra Bank");
+    expect(get<{ reason: string }>("SELECT reason FROM mails")!.reason).toBe("From HDFC Bank, but your UPI accounts are with Kotak Mahindra Bank");
     expect(await go("mx.google.com; dmarc=fail header.from=hdfcbank.net")).toBe("skipped");
     expect(body).not.toHaveBeenCalled();
   });
@@ -301,13 +306,13 @@ describe("plumbing", () => {
     set("upi_id", ""); expect(() => make()).toThrow(/UPI ID/);
   });
   it("queues a webhook in the same breath as settlement", () => {
-    run("INSERT INTO webhooks VALUES ('w',?,?,?,1,0)", M, "https://x.in", "s");
+    run("INSERT INTO webhooks (id, merchant_id, url, secret_enc, active, created_at) VALUES ('w',?,?,?,1,0)", M, "https://x.in", "s");
     const p = make();
     P.approve(M, p.id, "");
     expect(all<{ event: string }>("SELECT event FROM deliveries ORDER BY created_at, rowid").map((d) => d.event)).toEqual(["payment.created", "payment.paid"]);
   });
   it("draws a QR that scans back to the same UPI request", () => {
-    const uri = P.upiUri(make(50007), P.getSettings(M));
+    const uri = P.upiFor(make(50007))!.uri;
     expect(uri).toMatch(/^upi:\/\/pay\?pa=shop@hdfcbank&pn=Merchant&am=500\.07&cu=INR&tn=[0-9A-F]{10}$/);
     const { size, on } = qrMatrix(uri);
     const k = 6, q = 4, w = (size + q * 2) * k;

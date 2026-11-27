@@ -2,7 +2,8 @@ import { all, get, run, tx } from "../db";
 import { announce, AppError, getPayment, getSettings, owned, settleInTx, addEvent } from "../payments";
 import { publish, topics } from "../bus";
 import { env } from "../env";
-import type { Mail, MailOutcome, Payment } from "../../types";
+import type { Mail, MailOutcome, Payment, UpiAccount } from "../../types";
+import { accountForPayment, bankCodes, listAccounts } from "../accounts";
 import { inr } from "../../money";
 import { screen, type Headers, type Screen } from "./screen";
 import { htmlToText, parseCredit, type Credit } from "./parse";
@@ -16,7 +17,7 @@ const SKEW = 10_000;
 
 export function policyFor(merchantId: string) {
   const s = getSettings(merchantId);
-  return { bankCode: s.bank_code, extraDomains: s.extra_domains.split(/[\s,]+/).filter(Boolean), authServId: env.authServId };
+  return { bankCodes: bankCodes(merchantId), extraDomains: s.extra_domains.split(/[\s,]+/).filter(Boolean), authServId: env.authServId };
 }
 
 export const screenFor = (merchantId: string, h: Headers): Screen => screen(h, policyFor(merchantId));
@@ -31,7 +32,7 @@ export function ingestSms(merchantId: string, m: { messageId: string; sender: st
   const known = get<Mail>("SELECT * FROM mails WHERE merchant_id=? AND message_id=?", merchantId, m.messageId);
   if (known) return { outcome: known.outcome, amount: known.amount, payment_id: known.payment_id };
   const s = getSettings(merchantId);
-  const v = screenSms(m.sender, m.body, { bankCode: s.bank_code, extraHeaders: s.extra_headers.split(/[\s,]+/).filter(Boolean) });
+  const v = screenSms(m.sender, m.body, { bankCodes: bankCodes(merchantId), extraHeaders: s.extra_headers.split(/[\s,]+/).filter(Boolean) });
   if (v.verdict === "skip") return { outcome: "skipped", amount: null, payment_id: null };
   const inc: Incoming = { messageId: m.messageId, source: "sms", receivedAt: m.receivedAt, headers: { from: [m.sender.slice(0, 40)], subject: v.verdict === "read" ? `SMS from ${v.bank}` : `SMS from ${m.sender.slice(0, 40)}`, authResults: [] } };
   let outcome: MailOutcome;
@@ -41,7 +42,7 @@ export function ingestSms(merchantId: string, m: { messageId: string; sender: st
     const parsed = parseCredit("", m.body, { sms: true });
     if (!parsed.ok) record(merchantId, inc, { outcome: (outcome = "ignored"), reason: parsed.reason, bank: v.bank });
     else {
-      const r = tx(() => apply(merchantId, inc, v.bank, parsed.credit));
+      const r = tx(() => apply(merchantId, inc, v.bank, parsed.credit, v.code));
       outcome = r.outcome;
       if (r.settled) announce(r.settled);
     }
@@ -82,7 +83,7 @@ export async function ingest(merchantId: string, m: Incoming, fetchBody: () => P
   }
   const { outcome, settled } = tx(() => {
     forget(old);
-    return apply(merchantId, m, v.bank, parsed.credit);
+    return apply(merchantId, m, v.bank, parsed.credit, v.code);
   });
   if (settled) announce(settled);
   publish(topics.merchant(merchantId));
@@ -116,7 +117,7 @@ function record(merchantId: string, m: Incoming, r: Rec): number {
   );
 }
 
-function apply(merchantId: string, m: Incoming, bank: string, c: Credit): { outcome: MailOutcome; settled?: Payment } {
+function apply(merchantId: string, m: Incoming, bank: string, c: Credit, bankCode?: string | null): { outcome: MailOutcome; settled?: Payment } {
   const base = { bank, amount: c.amount, utr: c.utr, payer_vpa: c.payerVpa, payer_name: c.payerName, account_tail: c.accountTail, excerpt: c.sentence };
   // A second poll may have raced us here.
   const seen = get<Mail>("SELECT * FROM mails WHERE merchant_id=? AND message_id=?", merchantId, m.messageId);
@@ -130,12 +131,12 @@ function apply(merchantId: string, m: Incoming, bank: string, c: Credit): { outc
       return { outcome: "duplicate" };
     }
   }
-  const s = getSettings(merchantId);
-  if (c.accountTail && s.account_tail && !tailsAgree(c.accountTail, s.account_tail)) {
-    // Someone is waiting for exactly this amount, so the saved account is probably the wrong one. Show it, never settle it.
-    const waited = match(merchantId, m.receivedAt, c);
+  const tails = savedTails(merchantId);
+  if (c.accountTail && tails.length && !tails.some((t) => tailsAgree(c.accountTail!, t))) {
+    // Someone is waiting for exactly this amount, so a saved account is probably wrong. Show it, never settle it.
+    const waited = match(merchantId, m.receivedAt, { ...c, accountTail: null });
     const outcome = waited.payment || waited.many ? "unmatched" : "ignored";
-    record(merchantId, m, { ...base, outcome, reason: `${WRONG_ACCOUNT} ${c.accountTail}, but Configuration has ${s.account_tail}` });
+    record(merchantId, m, { ...base, outcome, reason: `${WRONG_ACCOUNT} ${c.accountTail}, but your UPI accounts end ${tails.join(", ")}` });
     return { outcome };
   }
 
@@ -149,7 +150,7 @@ function apply(merchantId: string, m: Incoming, bank: string, c: Credit): { outc
     return { outcome: "duplicate" };
   }
 
-  const found = match(merchantId, m.receivedAt, c);
+  const found = match(merchantId, m.receivedAt, c, bankCode);
   if (!found.payment) {
     const outcome = found.many ? "ambiguous" : "unmatched";
     record(merchantId, m, { ...base, outcome, reason: found.reason });
@@ -167,22 +168,22 @@ const WRONG_ACCOUNT = "Paid into the account ending";
 
 /** The newest credit this week that was refused because it named another account, if the setting still disagrees with it. */
 export function accountMismatch(merchantId: string): { tail: string; saved: string; at: number } | null {
-  const s = getSettings(merchantId);
+  const tails = savedTails(merchantId);
   const r = get<Mail>("SELECT * FROM mails WHERE merchant_id=? AND account_tail IS NOT NULL AND amount IS NOT NULL AND received_at>? ORDER BY received_at DESC LIMIT 1", merchantId, Date.now() - 7 * 86_400_000);
-  if (!s.account_tail || !r?.account_tail || tailsAgree(r.account_tail, s.account_tail)) return null;
-  return { tail: r.account_tail, saved: s.account_tail, at: r.received_at };
+  if (!tails.length || !r?.account_tail || tails.some((t) => tailsAgree(r.account_tail!, t))) return null;
+  return { tail: r.account_tail, saved: tails.join(", "), at: r.received_at };
 }
 
 /** After the account is corrected, credits refused for that reason alone get a second chance under the normal rules. */
 export function recheckAccount(merchantId: string): number {
-  const s = getSettings(merchantId);
+  const tails = savedTails(merchantId);
   const rows = all<Mail>(
     "SELECT * FROM mails WHERE merchant_id=? AND payment_id IS NULL AND amount IS NOT NULL AND outcome IN ('ignored','unmatched') AND (reason LIKE 'Paid into the account ending%' OR reason LIKE 'For a different account%') AND received_at>? ORDER BY received_at",
     merchantId, Date.now() - 86_400_000,
   );
   let n = 0;
   for (const r of rows) {
-    if (!r.account_tail || (s.account_tail && !tailsAgree(r.account_tail, s.account_tail))) continue;
+    if (!r.account_tail || (tails.length && !tails.some((t) => tailsAgree(r.account_tail!, t)))) continue;
     const c: Credit = { amount: r.amount!, utr: r.utr, payerVpa: r.payer_vpa, payerName: r.payer_name, accountTail: r.account_tail, paymentIds: [], sentence: r.excerpt };
     const settled = tx(() => {
       if (r.utr && get("SELECT 1 FROM mails WHERE merchant_id=? AND utr=? AND id<>? AND outcome IN ('matched','unmatched','ambiguous')", merchantId, r.utr, r.id)) {
@@ -206,7 +207,7 @@ export function recheckAccount(merchantId: string): number {
 function echoOf(merchantId: string, m: Incoming, c: Credit): Payment | undefined {
   const p = get<Payment & { mail_source: string; mail_at: number }>(
     `SELECT p.*, m.source mail_source, m.received_at mail_at FROM payments p JOIN mails m ON m.id=p.mail_id
-     WHERE p.merchant_id=? AND p.payable=? AND p.exclusive=1 AND p.status='paid' AND p.method IN ('email','sms','utr') AND p.match_until>? AND p.created_at<=?
+     WHERE p.merchant_id=? AND p.test=0 AND p.payable=? AND p.exclusive=1 AND p.status='paid' AND p.method IN ('email','sms','utr') AND p.match_until>? AND p.created_at<=?
      ORDER BY p.settled_at DESC LIMIT 1`,
     merchantId, c.amount, m.receivedAt, m.receivedAt + SKEW,
   );
@@ -221,13 +222,26 @@ const tailsAgree = (a: string, b: string) => {
   return a.slice(-n) === b.slice(-n);
 };
 
-function match(merchantId: string, at: number, c: Credit): { payment?: Payment; reason: string; byUtr?: boolean; many?: boolean } {
+/** Last digits of every saved account, so an alert for another account is never taken as payment. */
+const savedTails = (merchantId: string) => [...new Set(listAccounts(merchantId).map((a) => a.account_tail).filter((t): t is string => !!t))];
+
+function match(merchantId: string, at: number, c: Credit, bankCode?: string | null): { payment?: Payment; reason: string; byUtr?: boolean; many?: boolean } {
+  // With several UPI accounts, a credit can only be for a payment pinned to an account it fits: same bank, same last digits.
+  const cache = new Map<number, UpiAccount | undefined>();
+  const fits = (p: Payment) => {
+    const key = p.upi_account_id ?? 0;
+    if (!cache.has(key)) cache.set(key, accountForPayment(p));
+    const a = cache.get(key);
+    if (!a) return true;
+    if (c.accountTail && a.account_tail && !tailsAgree(c.accountTail, a.account_tail)) return false;
+    return !bankCode || a.bank_code === "any" || a.bank_code === bankCode;
+  };
   const open = all<Payment>(
-    "SELECT * FROM payments WHERE merchant_id=? AND payable=? AND status IN ('pending','verifying','on_hold') AND created_at<=? ORDER BY created_at",
+    "SELECT * FROM payments WHERE merchant_id=? AND test=0 AND payable=? AND status IN ('pending','verifying','on_hold') AND created_at<=? ORDER BY created_at",
     merchantId, c.amount, at + SKEW,
-  );
+  ).filter(fits);
   if (!open.length) {
-    const just = get<Payment>("SELECT id FROM payments WHERE merchant_id=? AND payable=? AND status='paid' AND match_until>? AND created_at<=?", merchantId, c.amount, at, at + SKEW);
+    const just = get<Payment>("SELECT id FROM payments WHERE merchant_id=? AND test=0 AND payable=? AND status='paid' AND match_until>? AND created_at<=?", merchantId, c.amount, at, at + SKEW);
     return { reason: just ? `May be a second alert for ${just.id}, already paid` : `No open payment is waiting for ${inr(c.amount)}` };
   }
 

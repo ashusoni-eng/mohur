@@ -12,8 +12,8 @@ export function parseHeader(sender: string): { header: string; kind: string | nu
   return m ? { header: m[1], kind: m[2] ?? null } : null;
 }
 
-export const headersFor = (bankCode: string, extra: string[]) => [
-  ...new Set([...(bankCode === "any" ? BANKS : BANKS.filter((b) => b.code === bankCode)).flatMap((b) => b.sms), ...extra.map((e) => e.toUpperCase())]),
+export const headersFor = (bankCodes: string[], extra: string[]) => [
+  ...new Set([...(bankCodes.includes("any") ? BANKS : BANKS.filter((b) => bankCodes.includes(b.code))).flatMap((b) => b.sms), ...extra.map((e) => e.toUpperCase())]),
 ];
 
 const CREDITISH = /\b(?:credit(?:ed)?|received|deposited)\b/i;
@@ -21,12 +21,12 @@ const SECRET = /\b(?:otp|one[- ]time|password|passcode|pin|verification code|cvv
 /** "Never share your OTP or PIN" is advice, not a secret. */
 const ADVICE = /\b(?:never|do not|don'?t)\s+(?:ever\s+)?share[^.\n]*/gi;
 
-export function screenSms(sender: string, body: string, p: { bankCode: string; extraHeaders: string[] }): Screen {
+export function screenSms(sender: string, body: string, p: { bankCodes: string[]; extraHeaders: string[] }): Screen {
   if (!CREDITISH.test(body) || SECRET.test(body.replace(ADVICE, " "))) return { verdict: "skip", reason: "Not a credit alert" };
   const h = parseHeader(sender);
   if (!h) return { verdict: "suspicious", reason: "Reads like a bank credit, but came from an ordinary number" };
   if (h.kind === "P") return { verdict: "skip", reason: "Promotional message" };
-  if (!headersFor(p.bankCode, p.extraHeaders).includes(h.header)) return { verdict: "skip", reason: `${h.header} is not one of your bank's SMS senders` };
-  const bank = BANKS.find((b) => b.sms.includes(h.header)) ?? BANKS.find((b) => b.code === p.bankCode);
-  return { verdict: "read", bank: bank?.name ?? h.header };
+  if (!headersFor(p.bankCodes, p.extraHeaders).includes(h.header)) return { verdict: "skip", reason: `${h.header} is not one of your bank's SMS senders` };
+  const bank = BANKS.find((b) => b.sms.includes(h.header)) ?? (p.bankCodes.length === 1 ? BANKS.find((b) => b.code === p.bankCodes[0]) : undefined);
+  return { verdict: "read", bank: bank?.name ?? h.header, code: bank?.code ?? null };
 }

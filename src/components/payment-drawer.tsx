@@ -7,7 +7,7 @@ import { inr } from "@/lib/money";
 import { useApi, useLive } from "./live";
 import { Button, CopyButton, Dialog, LinkButton, Skeleton, StatusPill, useToast } from "./ui";
 
-type Detail = { payment: Payment; events: PaymentEvent[]; mail: Mail | null };
+type Detail = { payment: Payment; account?: { label: string; upi_id: string } | null; events: PaymentEvent[]; mail: Mail | null };
 
 export function PaymentDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   return <Dialog open={!!id} onClose={onClose} title="Payment" side>{id && <Body key={id} id={id} />}</Dialog>;
@@ -22,15 +22,19 @@ function Body({ id }: { id: string }) {
 
 const DOT: Record<string, string> = { paid: "bg-jade", declined: "bg-carnelian", on_hold: "bg-[#b8780f]", expired: "bg-line-strong" };
 
-export function PaymentDetail({ payment: p, events, mail }: Detail) {
+export function PaymentDetail({ payment: p, account, events, mail }: Detail) {
   const rows: [string, React.ReactNode][] = [
     ["Payment ID", <span key="i" className="inline-flex items-center gap-1"><span className="font-mono">{p.id}</span><CopyButton text={p.id} className="-my-1 -mr-2" /></span>],
     ["For", p.title],
     ["Came from", { link: "Payment link", qr: "QR code", api: "API" }[p.source]],
   ];
   if (p.payable !== p.amount) rows.push(["Requested", <span key="a" className="num">{inr(p.amount)} <span className="text-ink-3">+ {p.payable - p.amount} paise to identify it</span></span>]);
+  if (p.test) rows.push(["Mode", <span key="t" className="rounded-full bg-amber-wash px-2 py-0.5 text-[13px] font-semibold text-amber">Test: no real money</span>]);
+  if (account) rows.push([p.status === "paid" ? "Paid into" : "Pays into", <span key="ac">{account.label}<span className="block text-[13px] font-normal text-ink-3">{account.upi_id}</span></span>]);
   if (p.customer_name) rows.push(["Customer", p.customer_name]);
   if (p.customer_contact) rows.push(["Contact", p.customer_contact]);
+  if (p.customer_email) rows.push(["Email", p.customer_email]);
+  if (p.note) rows.push(["UPI note", p.note]);
   if (p.reference) rows.push(["Your reference", p.reference]);
   if (p.payer_name) rows.push(["Paid by", p.payer_name]);
   if (p.payer_vpa) rows.push(["Payer UPI ID", p.payer_vpa]);

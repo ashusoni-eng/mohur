@@ -1,6 +1,7 @@
 import dns from "node:dns/promises";
 import net from "node:net";
 import { all, get, run } from "./db";
+import { upiFor } from "./payments";
 import { decrypt, hmac, randomToken } from "./crypto";
 import { env } from "./env";
 import type { Payment } from "../types";
@@ -9,21 +10,34 @@ import type { Payment } from "../types";
 export function publicPayment(p: Payment) {
   return {
     id: p.id, object: "payment", status: p.status, amount: p.amount, amount_payable: p.payable, currency: "INR", title: p.title,
-    reference: p.reference, source: p.source, link_id: p.link_id, customer: { name: p.customer_name, contact: p.customer_contact },
+    reference: p.reference, note: p.note, source: p.source, link_id: p.link_id, livemode: !p.test,
+    customer: { name: p.customer_name, contact: p.customer_contact, email: p.customer_email },
     utr: p.utr, payer_vpa: p.payer_vpa, payer_name: p.payer_name, verified_by: p.status === "paid" ? p.method : null,
     checkout_url: `${env.appUrl}/checkout/${p.id}`,
+    // Open this on a phone to jump straight into a UPI app. Only while the payment can still be paid.
+    upi_intent: p.status === "pending" || p.status === "verifying" ? upiFor(p)?.uri ?? null : null,
     created_at: new Date(p.created_at).toISOString(), settled_at: p.settled_at ? new Date(p.settled_at).toISOString() : null,
   };
 }
 
+/**
+ * One event per change, numbered per payment. Retries can arrive out of order, so a receiver keeps
+ * the highest sequence it has applied and ignores anything lower. The event ID is the same in every
+ * retry, which makes it the key to deduplicate on.
+ */
 export function queueWebhook(p: Payment, event: string) {
-  const hooks = all<{ id: string }>("SELECT id FROM webhooks WHERE merchant_id=? AND active=1", p.merchant_id);
-  for (const h of hooks) {
-    const id = "evt_" + randomToken(12);
-    const body = JSON.stringify({ id, type: event, created_at: new Date().toISOString(), data: publicPayment(p) });
-    run("INSERT INTO deliveries (id, webhook_id, event, payment_id, body, next_at, created_at) VALUES (?,?,?,?,?,?,?)", id, h.id, event, p.id, body, Date.now(), Date.now());
-  }
+  const hooks = all<{ id: string }>("SELECT id FROM webhooks WHERE merchant_id=? AND active=1 AND mode=?", p.merchant_id, p.test ? "test" : "live");
+  if (!hooks.length) return;
+  run("UPDATE payments SET event_seq=event_seq+1 WHERE id=?", p.id);
+  const sequence = get<{ event_seq: number }>("SELECT event_seq FROM payments WHERE id=?", p.id)!.event_seq;
+  const id = "evt_" + randomToken(12);
+  const body = JSON.stringify({ id, type: event, sequence, livemode: !p.test, created_at: new Date().toISOString(), data: publicPayment(p) });
+  for (const h of hooks)
+    run("INSERT INTO deliveries (id, webhook_id, event, payment_id, body, next_at, created_at, sequence) VALUES (?,?,?,?,?,?,?,?)", `${id}_${h.id.slice(3, 9)}`, h.id, event, p.id, body, Date.now(), Date.now(), sequence);
 }
+
+/** The event ID inside the body, shared by every endpoint that receives it. */
+const eventId = (d: Row) => (JSON.parse(d.body) as { id: string }).id;
 
 const BACKOFF = [30, 120, 600, 3600, 21600].map((s) => s * 1000);
 
@@ -48,11 +62,11 @@ export async function assertSafeUrl(raw: string) {
   if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new Error("That address is private");
 }
 
-type Row = { id: string; body: string; event: string; attempts: number; url: string; secret_enc: string };
+type Row = { id: string; body: string; event: string; attempts: number; url: string; secret_enc: string; sequence: number };
 
 export async function deliverDue() {
   const due = all<Row>(
-    `SELECT d.id, d.body, d.event, d.attempts, w.url, w.secret_enc FROM deliveries d JOIN webhooks w ON w.id=d.webhook_id
+    `SELECT d.id, d.body, d.event, d.attempts, d.sequence, w.url, w.secret_enc FROM deliveries d JOIN webhooks w ON w.id=d.webhook_id
      WHERE d.status='queued' AND d.next_at<=? AND w.active=1 ORDER BY d.created_at LIMIT 10`, Date.now(),
   );
   await Promise.all(due.map(deliver));
@@ -70,7 +84,7 @@ async function deliver(d: Row) {
     const t = Math.floor(Date.now() / 1000);
     const res = await fetch(d.url, {
       method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000), body: d.body,
-      headers: { "content-type": "application/json", "user-agent": "Mohur-Webhooks/1", "mohur-event": d.event, "mohur-signature": `t=${t},v1=${hmac(decrypt(d.secret_enc), `${t}.${d.body}`)}` },
+      headers: { "content-type": "application/json", "user-agent": "Mohur-Webhooks/1", "mohur-event": d.event, "mohur-event-id": eventId(d), "mohur-sequence": String(d.sequence), "mohur-signature": `t=${t},v1=${hmac(decrypt(d.secret_enc), `${t}.${d.body}`)}` },
     });
     code = res.status;
     await res.body?.cancel().catch(() => {});

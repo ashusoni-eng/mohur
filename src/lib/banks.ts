@@ -31,8 +31,14 @@ export const bankByIfsc = (ifsc: string) => BANKS.find((b) => b.ifsc === ifsc.sl
 /** True when host is the domain itself or a subdomain of it. "evil-hdfcbank.net" is neither. */
 export const within = (host: string, domain: string) => host === domain || host.endsWith("." + domain);
 
-export function trustedBank(host: string, bankCode: string, extra: string[]): { name: string } | null {
-  if (extra.some((d) => within(host, d))) return { name: BANKS.find((b) => b.code === bankCode)?.name ?? host };
-  const pool = bankCode === "any" ? BANKS : BANKS.filter((b) => b.code === bankCode);
-  return pool.find((b) => b.domains.some((d) => within(host, d))) ?? null;
+/** The bank a sending host belongs to, among the banks this business uses ("any" trusts every known bank). */
+export function trustedBank(host: string, bankCodes: string | string[], extra: string[]): { name: string; code: string | null } | null {
+  const codes = Array.isArray(bankCodes) ? bankCodes : [bankCodes];
+  if (extra.some((d) => within(host, d))) {
+    const only = codes.length === 1 ? BANKS.find((b) => b.code === codes[0]) : undefined;
+    return { name: only?.name ?? host, code: only?.code ?? null };
+  }
+  const pool = codes.includes("any") ? BANKS : BANKS.filter((b) => codes.includes(b.code));
+  const b = pool.find((x) => x.domains.some((d) => within(host, d)));
+  return b ? { name: b.name, code: b.code } : null;
 }

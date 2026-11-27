@@ -13,14 +13,14 @@ import { Button, CopyButton, Dialog, LinkButton, useToast } from "./ui";
 interface Pairing { id: string; until: number; server: string; link: string }
 const Box = ({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) => <section className="card p-6 sm:p-8"><h2 className="font-display text-[22px] leading-tight">{title}</h2>{sub && <p className="mt-1 max-w-[64ch] text-ink-3">{sub}</p>}<div className="mt-6">{children}</div></section>;
 
-export function PhonePanel({ bank }: { bank: string }) {
+export function PhonePanel({ banks }: { banks: string[] }) {
   const devices = (useLive()?.devices ?? []).filter((d) => d.status === "active");
   const [pair, setPair] = useState<Pairing | null>(null);
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState<DeviceRow | null>(null);
   const toast = useToast();
   const paired = pair && devices.find((d) => d.id === pair.id);
-  const headers = bank === "any" ? null : BANKS.find((b) => b.code === bank)?.sms;
+  const headers = !banks.length || banks.includes("any") ? null : banks.flatMap((c) => BANKS.find((b) => b.code === c)?.sms ?? []);
 
   useEffect(() => { if (paired) { toast(`${paired.model || "Phone"} is paired`); setPair(null); } }, [paired, toast]);
 

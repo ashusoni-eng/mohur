@@ -1,14 +1,16 @@
 import { get, run } from "./db";
+import { hasAccount } from "./accounts";
 import { newSlug } from "./crypto";
-import { AppError } from "./payments";
+import { AppError, assertRedirect, getSettings } from "./payments";
 import { env } from "./env";
 import type { Link } from "../types";
 
 export interface NewLink { title: string; description?: string; amount?: number | null; minAmount?: number | null; reusable?: boolean; askName?: boolean; askContact?: boolean; redirectUrl?: string | null; expiresAt?: number | null }
 
 export function createLink(merchantId: string, n: NewLink): Link {
-  if (!get("SELECT 1 FROM settings WHERE merchant_id=? AND upi_id IS NOT NULL AND upi_id!=''", merchantId))
+  if (!hasAccount(merchantId))
     throw new AppError("Add your UPI ID in Configuration before creating a link", 409, "not_configured");
+  if (n.redirectUrl) assertRedirect(getSettings(merchantId), n.redirectUrl);
   const id = "lnk_" + newSlug(14);
   run(
     `INSERT INTO links (id, merchant_id, slug, title, description, amount, min_amount, reusable, ask_name, ask_contact, redirect_url, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,

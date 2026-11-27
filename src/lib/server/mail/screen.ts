@@ -13,10 +13,10 @@ export interface Headers {
   authResults: string[];
 }
 
-export interface SenderPolicy { bankCode: string; extraDomains: string[]; authServId: string }
+export interface SenderPolicy { bankCodes: string[]; extraDomains: string[]; authServId: string }
 
 export type Screen =
-  | { verdict: "read"; bank: string }
+  | { verdict: "read"; bank: string; code?: string | null }
   | { verdict: "skip"; reason: string; otherBank?: boolean }
   | { verdict: "suspicious"; reason: string };
 
@@ -62,16 +62,16 @@ export function senderAuthenticated(h: Headers, host: string, authServId: string
 export function screen(h: Headers, policy: SenderPolicy): Screen {
   if (!subjectLooksLikeCredit(h.subject)) return { verdict: "skip", reason: "Subject is not a bank credit alert" };
   if (h.from.length !== 1) {
-    const anyBank = h.from.some((f) => trustedBank(f.split("@")[1] ?? "", policy.bankCode, policy.extraDomains));
+    const anyBank = h.from.some((f) => trustedBank(f.split("@")[1] ?? "", policy.bankCodes, policy.extraDomains));
     return anyBank ? { verdict: "suspicious", reason: "More than one From address" } : { verdict: "skip", reason: "Unrecognised sender" };
   }
   const host = h.from[0].split("@").pop() ?? "";
-  const bank = trustedBank(host, policy.bankCode, policy.extraDomains);
+  const bank = trustedBank(host, policy.bankCodes, policy.extraDomains);
   const other = bank ? null : trustedBank(host, "any", []);
   if (other && senderAuthenticated(h, host, policy.authServId))
-    return { verdict: "skip", otherBank: true, reason: `From ${other.name}, but Configuration is set to ${BANKS.find((b) => b.code === policy.bankCode)?.name ?? "another bank"}` };
+    return { verdict: "skip", otherBank: true, reason: `From ${other.name}, but your UPI accounts are with ${policy.bankCodes.map((c) => BANKS.find((b) => b.code === c)?.name ?? c).join(", ")}` };
   if (!bank) return { verdict: "skip", reason: `${host} is not one of your bank's sending domains` };
   if (!senderAuthenticated(h, host, policy.authServId))
     return { verdict: "suspicious", reason: "Claims to be your bank but failed DKIM/DMARC checks" };
-  return { verdict: "read", bank: bank.name };
+  return { verdict: "read", bank: bank.name, code: bank.code };
 }

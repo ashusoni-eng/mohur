@@ -28,6 +28,7 @@ export default async function Home() {
           <Link href="/" className="text-brass-lt"><Wordmark size={38} /></Link>
           <nav className="flex items-center gap-2 sm:gap-5">
             <Link href="#app" className="text-white/80 hover:text-white max-md:hidden">Get the app</Link>
+            <Link href="/docs" className="text-white/80 hover:text-white max-md:hidden">API</Link>
             <Link href="/status" className="text-white/80 hover:text-white max-md:hidden">Check a payment</Link>
             {!m && <Link href="/login" className="px-2 text-white/80 hover:text-white">Sign in</Link>}
             <GithubStars />
@@ -140,7 +141,7 @@ export default async function Home() {
           </div>
         </section>
       </main>
-      <footer className="bg-deep py-8 text-white/70"><div className="mx-auto flex max-w-[1180px] px-6 flex-wrap items-center justify-between gap-4"><span className="text-brass-lt"><Wordmark size={28} /></span><span className="text-[14px]">Open source and free under the MIT licence. A mohur was the gold coin of the Mughal mints.</span><nav className="flex items-center gap-6 text-[14px]"><Link href="/install" className="hover:text-white">Android app</Link><Link href="/status" className="hover:text-white">Check a payment</Link><a href={repoUrl} target="_blank" rel="noreferrer" aria-label="Mohur on GitHub" className="hover:text-white"><GithubMark size={22} /></a></nav></div></footer>
+      <footer className="bg-deep py-8 text-white/70"><div className="mx-auto flex max-w-[1180px] px-6 flex-wrap items-center justify-between gap-4"><span className="text-brass-lt"><Wordmark size={28} /></span><span className="text-[14px]">Open source and free under the MIT licence. A mohur was the gold coin of the Mughal mints.</span><nav className="flex items-center gap-6 text-[14px]"><Link href="/docs" className="hover:text-white">API docs</Link><Link href="/install" className="hover:text-white">Android app</Link><Link href="/status" className="hover:text-white">Check a payment</Link><a href={repoUrl} target="_blank" rel="noreferrer" aria-label="Mohur on GitHub" className="hover:text-white"><GithubMark size={22} /></a></nav></div></footer>
     </>
   );
 }
